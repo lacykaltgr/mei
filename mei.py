@@ -55,16 +55,18 @@ class MEI:
         ]
 
         # prepare initial image
-        channels, original_h, original_w = self.img_shape[-3:]
+        x, y, z = self.img_shape[-3:]  #channels width height
 
         # the background color of the initial image
-        background_color = np.float32([128] * channels)
+        background_color = np.float32([128] * min(x,y,z))
         # generate initial random image
-        gen_image = np.random.normal(background_color, 8, (original_w, original_w, channels))
+        gen_image = np.random.normal(background_color, 8, (x, y, z))
         gen_image = np.clip(gen_image, 0, 255)
 
+
         # generate class visualization via octavewise gradient ascent
-        #gen_image = self.deepdraw(adj_model, gen_image, octaves, random_crop=False)
+        gen_image = self.deepdraw(adj_model, gen_image, octaves, random_crop=False)
+
 
         #remove dimensions with size 1
         mei = gen_image.squeeze()
@@ -119,10 +121,8 @@ class MEI:
         """
         # prepare base image
         image = process(base_img, mu=self.bias, sigma=self.scale)  # (3,224,224)
-
         # get input dimensions from net
         if original_size is None:
-            print('getting image size:')
             c, w, h = image.shape[-3:]
         else:
             c, w, h = original_size
@@ -327,7 +327,7 @@ class MEI:
 
         def run(x):
             with torch.no_grad():
-                img = torch.Tensor(process(x[..., None], mu=bias, sigma=scale)[None, ...])#.cuda()
+                img = torch.Tensor(process(x, mu=bias, sigma=scale)[None, ...]).to(self.device)
                 result = model(img)
             return result
 
