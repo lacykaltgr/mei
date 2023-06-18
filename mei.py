@@ -5,8 +5,9 @@ from tqdm import tqdm
 from utils import process, unprocess, roll, fft_smooth, batch_std, blur_in_place
 
 class MEI:
-    def __init__(self, model, dataset,  **MEIParams):
+    def __init__(self, model, dataset, device='cpu', **MEIParams):
         # model parameters
+        self.device = device
         self.model = model
         self.img_shape, self.bias, self.scale = self.prepare_data(dataset)
         print('Working with images with mu={}, sigma={}'.format(self.bias, self.scale))
@@ -59,17 +60,17 @@ class MEI:
         # the background color of the initial image
         background_color = np.float32([128] * channels)
         # generate initial random image
-        gen_image = np.random.normal(background_color, 8, (original_h, original_w, channels))
+        gen_image = np.random.normal(background_color, 8, (original_w, original_w, channels))
         gen_image = np.clip(gen_image, 0, 255)
 
         # generate class visualization via octavewise gradient ascent
-        gen_image = self.deepdraw(adj_model, gen_image, octaves, random_crop=False)
+        #gen_image = self.deepdraw(adj_model, gen_image, octaves, random_crop=False)
 
         #remove dimensions with size 1
         mei = gen_image.squeeze()
 
         with torch.no_grad():
-            img = torch.Tensor(process(gen_image, mu=self.bias, sigma=self.scale)[None, ...]).to('cpu')
+            img = torch.Tensor(process(gen_image, mu=self.bias, sigma=self.scale)[None, ...]).to(self.device)
             activation = adj_model(img).data.cpu().numpy()[0]
         cont, vals, lim_contrast = self.contrast_tuning(adj_model, mei, self.bias, self.scale)
 
@@ -84,7 +85,7 @@ class MEI:
 
 
 
-    def deepdraw(self, net, base_img, octaves, random_crop=True, original_size=None, device='cpu'):
+    def deepdraw(self, net, base_img, octaves, random_crop=True, original_size=None):
         """ Generate an image by iteratively optimizing activity of net.
 
         Arguments:
@@ -128,7 +129,7 @@ class MEI:
 
         print("starting drawing")
 
-        src = torch.zeros(1, c, w, h, requires_grad=True, device=device)
+        src = torch.zeros(1, c, w, h, requires_grad=True, device=self.device)
 
         for e, o in enumerate(octaves):
             if 'scale' in o:

@@ -1,3 +1,4 @@
 neuro_data/
 data/
 attorch/
+__pycache__/
