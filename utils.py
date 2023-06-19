@@ -2,11 +2,7 @@ is_cuda = lambda m: next(m.parameters()).is_cuda
 import torch
 import numpy as np
 #from scipy import ndimage
-
 from itertools import product, zip_longest, count
-
-
-
 
 def fft_smooth(grad, factor=1/4):
     """
@@ -23,9 +19,11 @@ def fft_smooth(grad, factor=1/4):
     # grad_fft = tf.fft2d(tf.cast(grad, tf.complex64))
     tw = np.minimum(np.arange(0, w), np.arange(w-1, -1, -1), dtype=np.float32)  # [-(w+2)//2:]
     th = np.minimum(np.arange(0, h), np.arange(h-1, -1, -1), dtype=np.float32)
-    t = 1 / np.maximum(1.0, (tw[None, :] ** 2 + th[:, None] ** 2) ** (factor))
+    t = 1 / np.maximum(1.0, (tw[None, :] ** 2 + th[:, None] ** 2) ** factor)
     F = grad.new_tensor(t / t.mean()).unsqueeze(-1)
+    print(F.shape)
     pp = torch.fft.rfft(grad.data, 2)
+    print(pp.shape)
     return torch.fft.irfft(pp * F, 2)
 
 
@@ -68,24 +66,6 @@ def roll(tensor, shift, axis):
     before = tensor.narrow(axis, 0, dim_size - shift)
     after = tensor.narrow(axis, after_start, shift)
     return torch.cat([after, before], axis)
-
-
-def process(x, mu=0.4, sigma=0.224):
-    """ Normalize and move channel dim in front of height and width"""
-    x = (x - mu) / sigma
-    if isinstance(x, torch.Tensor):
-        return x.transpose(-1, -2).transpose(-2, -3)
-    else:
-        return np.moveaxis(x, -1, -3)
-
-
-def unprocess(x, mu=0.4, sigma=0.224):
-    """Inverse of process()"""
-    x = x * sigma + mu
-    if isinstance(x, torch.Tensor):
-        return x.transpose(-3, -2).transpose(-2, -1)
-    else:
-        return np.moveaxis(x, -3, -1)
 
 
 def storeoutput(self, input, output):
@@ -397,3 +377,9 @@ def add_text(image, text, pos, fontsize=1, color=(0, 0, 0)):
     cv2.putText(image, text, pos, font, fontsize, color, 1, cv2.LINE_8)
     return image
 """
+
+
+def query(x, query):
+    for i in range(len(query)):
+        x = x[:, query[i]]
+    return x

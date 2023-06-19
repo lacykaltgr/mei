@@ -2,92 +2,105 @@
 import torch
 import numpy as np
 from tqdm import tqdm
-from utils import process, unprocess, roll, fft_smooth, batch_std, blur_in_place
+from utils import roll, fft_smooth, batch_std, blur_in_place, query
+#from scipy import signal, ndimage
+
 
 class MEI:
-    def __init__(self, model, dataset, device='cpu', **MEIParams):
+    def __init__(self, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
         # model parameters
         self.device = device
-        self.model = model
-        self.img_shape, self.bias, self.scale = self.prepare_data(dataset)
-        print('Working with images with mu={}, sigma={}'.format(self.bias, self.scale))
-
-        # mei parameters
-        self.iter_n = 1000          if 'iter_n' not in MEIParams else MEIParams['iter_n']
-        self.start_sigma = 1.5      if 'start_sigma' not in MEIParams else MEIParams['start_sigma']
-        self.end_sigma = 0.01       if 'end_sigma' not in MEIParams else MEIParams['end_sigma']
-        self.start_step_size = 3.0  if 'start_step_size' not in MEIParams else MEIParams['start_step_size']
-        self.end_step_size = 0.125  if 'end_step_size' not in MEIParams else MEIParams['end_step_size']
-        self.precond = 0.0#0.1          if 'precond' not in MEIParams else MEIParams['precond']
-        self.step_gain = 0.1        if 'step_gain' not in MEIParams else MEIParams['step_gain']
-        self.jitter = 0             if 'jitter' not in MEIParams else MEIParams['jitter']
-        self.blur = True            if 'blur' not in MEIParams else MEIParams['blur']
-        self.norm = -1              if 'norm' not in MEIParams else MEIParams['norm']
-        self.train_norm = -1        if 'train_norm' not in MEIParams else MEIParams['train_norm']
-
-        # result parameters
-        self.mei = None
-        self.activation = None
-        self.monotonic = None
-        self.max_contrast = None
-        self.max_activation = None
-        self.sat_contrast = None
-        self.img_mean = None
-        self.lim_contrast = None
+        self.models = []
+        self.bias = bias
+        self.scale = scale
+        self.img_shape = shape
 
 
+    #TODO: add support for multiple octaves
+    class MEIProcess:
+        def __init__(self, operation, **MEIParams):
+            self.operation = operation
 
-    def propogate(self, neuron_id):
+            self.mei = None
+            self.activation = None
+            self.monotonic = None
+            self.max_contrast = None
+            self.max_activation = None
+            self.sat_contrast = None
+            self.img_mean = None
+            self.lim_contrast = None
 
-        print(f'Working on neuron_id={neuron_id}')
+            # mei parameters
+            self.iter_n = 1000          if 'iter_n' not in MEIParams else MEIParams['iter_n']
+            self.start_sigma = 1.5      if 'start_sigma' not in MEIParams else MEIParams['start_sigma']
+            self.end_sigma = 0.01       if 'end_sigma' not in MEIParams else MEIParams['end_sigma']
+            self.start_step_size = 3.0  if 'start_step_size' not in MEIParams else MEIParams['start_step_size']
+            self.end_step_size = 0.125  if 'end_step_size' not in MEIParams else MEIParams['end_step_size']
+            self.precond = 0#.1          if 'precond' not in MEIParams else MEIParams['precond']
+            self.step_gain = 0.1        if 'step_gain' not in MEIParams else MEIParams['step_gain']
+            self.jitter = 0             if 'jitter' not in MEIParams else MEIParams['jitter']
+            self.blur = True            if 'blur' not in MEIParams else MEIParams['blur']
+            self.norm = -1              if 'norm' not in MEIParams else MEIParams['norm']
+            self.train_norm = -1        if 'train_norm' not in MEIParams else MEIParams['train_norm']
+            self.clip = True            if 'clip' not in MEIParams else MEIParams['clip']
+
+            self.octaves = [
+                {
+                    'iter_n': self.iter_n,
+                    'start_sigma': self.start_sigma,
+                    'end_sigma': self.end_sigma,
+                    'start_step_size': self.start_step_size,
+                    'end_step_size': self.end_step_size,
+                },
+            ]
+
+    def add_model(self, model):
+        self.models.append(model)
+
+    def remove_model(self, model):
+        self.models.remove(model)
+
+    def generate(self, neuron_query, **MEIParams):
 
         def adj_model(x):
-            return self.model(x)[:, neuron_id]
+            count = 0
+            sum = None
+            for model in self.models:
+                y = query(model(x), neuron_query)
+                sum = y if count == 0 else sum + y
+                count += 1
+            return sum / count
 
-        octaves = [
-            {
-                'iter_n': int(self.iter_n),
-                'start_sigma': float(self.start_sigma),
-                'end_sigma': float(self.end_sigma),
-                'start_step_size': float(self.start_step_size),
-                'end_step_size': float(self.end_step_size),
-            },
-        ]
+        process = self.MEIProcess(adj_model, **MEIParams)
 
-        # prepare initial image
-        x, y, z = self.img_shape[-3:]  #channels width height
-
-        # the background color of the initial image
-        background_color = np.float32([128] * min(x,y,z))
         # generate initial random image
-        gen_image = np.random.normal(background_color, 8, (x, y, z))
-        gen_image = np.clip(gen_image, 0, 255)
-
+        background_color = np.float32([self.bias] * min(self.img_shape))
+        gen_image = np.random.normal(background_color, self.scale / 20, self.img_shape)
+        gen_image = np.clip(gen_image, -1, 1)
 
         # generate class visualization via octavewise gradient ascent
-        gen_image = self.deepdraw(adj_model, gen_image, octaves, random_crop=False)
-
-
-        #remove dimensions with size 1
+        gen_image = self.deepdraw(gen_image, process, random_crop=False)
         mei = gen_image.squeeze()
 
         with torch.no_grad():
-            img = torch.Tensor(process(gen_image, mu=self.bias, sigma=self.scale)[None, ...]).to(self.device)
+            img = torch.Tensor(gen_image[None, ...]).to(self.device)
             activation = adj_model(img).data.cpu().numpy()[0]
-        cont, vals, lim_contrast = self.contrast_tuning(adj_model, mei, self.bias, self.scale)
 
-        self.mei = mei
-        self.activation = activation
-        self.monotonic = bool(np.all(np.diff(vals) >= 0))
-        self.max_activation = np.max(vals)
-        self.max_contrast = cont[np.argmax(vals)]
-        self.sat_contrast = np.max(cont)
-        self.img_mean = mei.mean()
-        self.lim_contrast = lim_contrast
+        #cont, vals, lim_contrast = MEI.contrast_tuning(adj_model, mei, device=self.device)
+
+        process.mei = mei
+        process.activation = activation
+        #process.monotonic = bool(np.all(np.diff(vals) >= 0))
+        #process.max_activation = np.max(vals)
+        #process.max_contrast = cont[np.argmax(vals)]
+        #process.sat_contrast = np.max(cont)
+        #process.img_mean = mei.mean()
+        #process.lim_contrast = lim_contrast
+
+        return process
 
 
-
-    def deepdraw(self, net, base_img, octaves, random_crop=True, original_size=None):
+    def deepdraw(self, image, process, random_crop=True, original_size=None):
         """ Generate an image by iteratively optimizing activity of net.
 
         Arguments:
@@ -119,21 +132,18 @@ class MEI:
         Returns:
             A h x w array. The optimized image.
         """
-        # prepare base image
-        image = process(base_img, mu=self.bias, sigma=self.scale)  # (3,224,224)
         # get input dimensions from net
         if original_size is None:
             c, w, h = image.shape[-3:]
         else:
             c, w, h = original_size
 
-        print("starting drawing")
 
         src = torch.zeros(1, c, w, h, requires_grad=True, device=self.device)
 
-        for e, o in enumerate(octaves):
+        for e, o in enumerate(process.octaves):
             if 'scale' in o:
-                pass
+                pass #TODO
                 # resize by o['scale'] if it exists
                 # image = scipy.ndimage.zoom(image, (1, o['scale'], o['scale']))
             _, imw, imh = image.shape
@@ -165,19 +175,123 @@ class MEI:
                 sigma = o['start_sigma'] + ((o['end_sigma'] - o['start_sigma']) * i) / o['iter_n']
                 step_size = o['start_step_size'] + ((o['end_step_size'] - o['start_step_size']) * i) / o['iter_n']
 
-                self.make_step(net, src, sigma=sigma, step_size=step_size)
-
-                if i % 10 == 0:
-                    print('finished step %d in octave %d' % (i, e))
+                self.make_step(process, src, sigma=sigma, step_size=step_size)
 
                 # insert modified image back into original image (if necessary)
                 image[:, ox:ox + w, oy:oy + h] = src.data[0].cpu().numpy()
 
+        return image
+
+
+    def diverse_deepdraw(self, image, process, random_crop=True, original_size=None,
+                          div_metric='correlation',
+                         div_linkage='minimum', div_weight=0, div_mask=1, **step_params):
+        """ Similar to deepdraw() but including a diversity term among all images a la
+        Cadena et al., 2018.
+
+        Arguments (only those additional to deepdraw):
+            base_img: (CHANGED) Expects a 4-d array (num_images x height x width x channels).
+            div_metric (str): What metric to use when computing pairwise differences.
+            div_linkage (str): How to agglomerate pairwise distances.
+            div_weight (float): Weight given to the diversity term in the objective function.
+            div_mask (np.array): Array (height x width) used to mask irrelevant parts of the
+                image before calculating diversity.
+        """
+        if len(image) < 2:
+            raise ValueError('You need to pass at least two initial images. Did you mean to '
+                             'use deepdraw()?')
+
+
+        # get input dimensions from net
+        if original_size is None:
+            c, w, h = image.shape[-3:]
+        else:
+            c, w, h = original_size
+
+        src = torch.zeros(len(image), c, w, h, requires_grad=True, device=self.device)
+        mask = torch.tensor(div_mask, dtype=torch.float32, device=self.device)
+
+        for e, o in enumerate(process.octaves):
+            if 'scale' in o:
+                pass #TODO
+                # resize by o['scale'] if it exists
+                #image = ndimage.zoom(image, (1, 1, o['scale'], o['scale']))
+            imw, imh = image.shape[-2:]
+            for i in range(o['iter_n']):
+                if imw > w:
+                    if random_crop:
+                        # randomly select a crop
+                        # ox = random.randint(0,imw-224)
+                        # oy = random.randint(0,imh-224)
+                        mid_x = (imw - w) / 2.
+                        width_x = imw - w
+                        ox = np.random.normal(mid_x, width_x * 0.3, 1)
+                        ox = int(np.clip(ox, 0, imw - w))
+                        mid_y = (imh - h) / 2.
+                        width_y = imh - h
+                        oy = np.random.normal(mid_y, width_y * 0.3, 1)
+                        oy = int(np.clip(oy, 0, imh - h))
+                        # insert the crop into src.data[0]
+                        src.data[:].copy_(torch.Tensor(image[..., ox:ox + w, oy:oy + h]))
+                    else:
+                        ox = int((imw - w) / 2)
+                        oy = int((imh - h) / 2)
+                        src.data[:].copy_(torch.Tensor(image[..., ox:ox + w, oy:oy + h]))
+                else:
+                    ox = 0
+                    oy = 0
+                    src.data[:].copy_(torch.Tensor(image))
+
+                sigma = o['start_sigma'] + ((o['end_sigma'] - o['start_sigma']) * i) / o['iter_n']
+                step_size = o['start_step_size'] + ((o['end_step_size'] - o['start_step_size']) * i) / o['iter_n']
+
+                div_term = 0
+                if div_weight > 0:
+                    # Compute distance matrix
+                    images = (src * mask).view(len(src), -1)  # num_images x num_pixels
+                    if div_metric == 'correlation':
+                        # computations restricted to the mask
+                        means = (images.sum(dim=-1) / mask.sum()).view(len(images), 1, 1, 1)
+                        residuals = ((src - means) * torch.sqrt(mask)).view(len(src), -1)
+                        ssr = (((src - means) ** 2) * mask).sum(-1).sum(-1).sum(-1)
+                        distance_matrix = -(torch.mm(residuals, residuals.t()) /
+                                            torch.sqrt(torch.ger(ssr, ssr)) + 1e-12)
+                    elif div_metric == 'cosine':
+                        image_norms = torch.norm(images, dim=-1)
+                        distance_matrix = -(torch.mm(images, images.t()) /
+                                            (torch.ger(image_norms, image_norms) + 1e-12))
+                    elif div_metric == 'euclidean':
+                        distance_matrix = torch.norm(images.unsqueeze(0) -
+                                                     images.unsqueeze(1), dim=-1)
+                    else:
+                        raise ValueError('Invalid distance metric {} for the diversity term'.format(div_metric))
+
+                    # Compute overall distance in this image set
+                    triu_idx = torch.triu(torch.ones(len(distance_matrix),
+                                                     len(distance_matrix)), diagonal=1) == 1
+                    if div_linkage == 'minimum':
+                        distance = distance_matrix[triu_idx].min()
+                    elif div_linkage == 'average':
+                        distance = distance_matrix[triu_idx].mean()
+                    else:
+                        raise ValueError('Invalid linkage for the diversity term: {}'.format(div_linkage))
+
+                    div_term = div_weight * distance
+
+                self.make_step(process, src, sigma=sigma, step_size=step_size, add_loss=div_term)
+
+                # TODO: Maybe save the MEIs every number of iterations and return all MEIs.
+                if i % 10 == 0:
+                    print('finished step %d in octave %d' % (i, e))
+
+                # insert modified image back into original image (if necessary)
+                image[..., ox:ox + w, oy:oy + h] = src.detach().cpu().numpy()
+
         # returning the resulting image
-        return unprocess(image, mu=self.bias, sigma=self.scale)
+        return image
 
 
-    def make_step(self, net, src,
+    def make_step(self, process, src,
                   step_size=1.5, sigma=None,
                   eps=1e-12, add_loss=0):
         """ Update src in place making a gradient ascent step in the output of net.
@@ -206,40 +320,31 @@ class MEI:
         if src.grad is not None:
             src.grad.zero_()
 
-
-        blur = bool(self.blur)
-        jitter = int(self.jitter)
-        precond = float(self.precond)
-        step_gain = float(self.step_gain)
-        norm = float(self.norm)
-        clip = True
-        train_norm = float(self.train_norm)
-
         # apply jitter shift
-        if jitter > 0:
-            ox, oy = np.random.randint(-jitter, jitter + 1, 2)  # use uniform distribution
+        if process.jitter > 0:
+            ox, oy = np.random.randint(-process.jitter, process.jitter + 1, 2)  # use uniform distribution
             ox, oy = int(ox), int(oy)
             src.data = roll(roll(src.data, ox, -1), oy, -2)
 
         img = src
-        if train_norm is not None and train_norm > 0.0:
+        if process.train_norm is not None and process.train_norm > 0.0:
             # normalize the image in backpropagatable manner
-            img_idx = batch_std(src.data) + eps > train_norm / self.scale  # images to update
+            img_idx = batch_std(src.data) + eps > process.train_norm / self.scale  # images to update
             if img_idx.any():
                 img = src.clone() # avoids overwriting original image but lets gradient through
                 img[img_idx] = ((src[img_idx] / (batch_std(src[img_idx], keepdim=True) +
-                                                 eps)) * (train_norm / self.scale))
+                                                 eps)) * (process.train_norm / self.scale))
 
-        y = net(img)
+        y = process.operation(img)
         (y.mean() + add_loss).backward()
 
         grad = src.grad
-        if precond > 0:
-            grad = fft_smooth(grad, precond)
+        if process.precond > 0:
+            grad = fft_smooth(grad, process.precond)
 
         # src.data += (step_size / (batch_mean(torch.abs(grad.data), keepdim=True) + eps)) * (step_gain / 255) * grad.data
-        a = (step_size / (torch.abs(grad.data).mean() + eps))
-        b = (step_gain / 255) * grad.data
+        a = step_size / (torch.abs(grad.data).mean() + eps)
+        b = process.step_gain * grad.data  #itt (step gain -255) volt az egyik szorzó
         src.data += a * b
         # * both versions are equivalent for a single-image batch, for batches with more than
         # one image the first one is better but it drawns out the gradients that are spatially
@@ -256,59 +361,22 @@ class MEI:
         # alright (also image generation works normally).
 
         #print(src.data.std() * scale)
-        if norm is not None and norm > 0.0:
-            data_idx = batch_std(src.data) + eps > norm / self.scale
-            src.data[data_idx] =  (src.data / (batch_std(src.data, keepdim=True) + eps) * norm / self.scale)[data_idx]
+        if process.norm is not None and process.norm > 0.0:
+            data_idx = batch_std(src.data) + eps > process.norm / self.scale
+            src.data[data_idx] =  (src.data / (batch_std(src.data, keepdim=True) + eps) * process.norm / self.scale)[data_idx]
 
-        if jitter > 0:
+        if process.jitter > 0:
             # undo the shift
             src.data = roll(roll(src.data, -ox, -1), -oy, -2)
 
-        if clip:
-            src.data = torch.clamp(src.data, -self.bias / self.scale, (255 - self.bias) / self.scale)
+        if process.clip:
+            src.data = torch.clamp(src.data, -self.bias / self.scale, (1 - self.bias) / self.scale)
 
-        if blur:
+        if process.blur:
             blur_in_place(src.data, sigma)
 
-
-    def prepare_data(self, trainset):
-        """
-        Given a key to uniquely identify a dataset and a readout key corresponding to a single component within the
-        scan, returns information pertinent to generating MEIs
-
-        Args:
-            key: a key that can uniquely identify a single entry from StaticMultiDataset * DataConfig
-            readout_key: a specific readout key
-
-        Returns:
-            trainset, img_shape, mu, mu_beh, mu_eye, s - where mu and s are mean and stdev of input images.
-        """
-        shape = list(trainset.dataset.data.shape)
-        if (len(shape) == 3):
-            shape = [1] + shape[1:]
-        else:
-            shape = shape[1:]
-        print(shape)
-        img_shape = shape
-        mu = 0.0
-        variance = 0.0
-        total_samples = 0
-
-        for inputs, _ in trainset:
-            batch_size = inputs.size(0)
-            total_samples += batch_size
-            mu += torch.mean(inputs)
-            variance += torch.var(inputs, unbiased=False)
-
-        mu /= total_samples
-        variance /= total_samples
-
-        # Calculate the standard deviation
-        s = torch.sqrt(variance)
-        return img_shape, mu.numpy(), s.numpy()
-
-
-    def contrast_tuning(self, model, img, bias, scale, min_contrast=0.01, n=1000, linear=True, use_max_lim=False):
+    @staticmethod
+    def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_lim=False, device='cpu'):
         mu = img.mean()
         delta = img - img.mean()
         vmax = delta.max()
@@ -317,17 +385,17 @@ class MEI:
         min_pdist = delta[delta > 0].min()
         min_ndist = (-delta[delta < 0]).min()
 
-        max_lim_gain = max((255 - mu) / min_pdist, mu / min_ndist)
+        max_lim_gain = max((1 - mu) / min_pdist, mu / min_ndist)
 
         base_contrast = img.std()
 
-        lim_contrast = 255 / (vmax - vmin) * base_contrast # maximum possible reachable contrast without clipping
+        lim_contrast = 1 / (vmax - vmin) * base_contrast # maximum possible reachable contrast without clipping
         min_gain = min_contrast / base_contrast
-        max_gain = min((255 - mu) / vmax, -mu / vmin)
+        max_gain = min((1 - mu) / vmax, -mu / vmin)
 
         def run(x):
             with torch.no_grad():
-                img = torch.Tensor(process(x, mu=bias, sigma=scale)[None, ...]).to(self.device)
+                img = torch.Tensor(x[None, ...]).to(device)
                 result = model(img)
             return result
 
@@ -342,7 +410,7 @@ class MEI:
 
         for g in tqdm(gains):
             img = delta * g + mu
-            img = np.clip(img, 0, 255)
+            img = np.clip(img, 0, 1)
             c = img.std()
             v = run(img).data.cpu().numpy()[0]
             cont.append(c)
@@ -352,3 +420,62 @@ class MEI:
         cont = np.array(cont)
 
         return cont, vals, lim_contrast
+
+    @staticmethod
+    def create_gabor(height=36, width=64, phase=0, wavelength=10, orientation=0, sigma=5,
+                     dy=0, dx=0):
+        """ Create a gabor patch (sinusoidal + gaussian).
+
+        Arguments:
+            height (int): Height of the image in pixels.
+            width (int): Width of the image in pixels.
+            phase (float): Angle at which to start the sinusoid in degrees.
+            wavelength (float): Wavelength of the sinusoid (1 / spatial frequency) in pixels.
+            orientation (float): Counterclockwise rotation to apply (0 is horizontal) in
+                degrees.
+            sigma (float): Sigma of the gaussian mask used in pixels
+            dy (float): Amount of translation in y (positive moves down) in pixels/height.
+            dx (float): Amount of translation in x (positive moves right) in pixels/height.
+
+        Returns:
+            Array of height x width shape with the required gabor.
+        """
+        # Compute image size to avoid translation or rotation producing black spaces
+        padding = max(height, width)
+        imheight = height + 2 * padding
+        imwidth = width + 2 * padding
+        # we could have diff pad sizes per dimension = max(dim_size, sqrt((h/2)^2 + (w/2)^2))
+        # but this simplifies the code for just a bit of inefficiency
+
+        # Create sinusoid with right wavelength and phase
+        start_sample = phase
+        step_size = 360 / wavelength
+        samples = start_sample + step_size * np.arange(imheight)
+        samples = np.mod(samples, 360)  # in degrees
+        rad_samples = samples * (np.pi / 180)  # radians
+        sin = np.sin(rad_samples)
+
+        # Create Gabor by stacking the sinusoid along the cols
+        gabor = np.tile(sin, (imwidth, 1)).T
+
+        # Rotate around center
+        #gabor = ndimage.rotate(gabor, orientation, reshape=False)
+
+        # Apply gaussian mask
+        #gaussy = signal.gaussian(imheight, std=sigma)
+        #gaussx = signal.gaussian(imwidth, std=sigma)
+        #mask = np.outer(gaussy, gaussx)
+        #gabor = gabor * mask
+
+        # Translate (this is only approximate but it should be good enough)
+        if abs(dx) > 1 or abs(dy) > 1:
+            raise ValueError('Please express translations as factors of the height/width,'
+                             'i.e, a number in interval [-1, 1] ')
+        dy = int(dy * height)  # int is the approximation
+        dx = int(dx * width)
+        gabor = gabor[padding - dy: -padding - dy, padding - dx: -padding - dx]
+
+        if gabor.shape != (height, width):
+            raise ValueError('Dimensions of gabor do not match desired dimensions.')
+
+        return gabor.astype(np.float32)
