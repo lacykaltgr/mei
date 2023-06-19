@@ -2,8 +2,10 @@
 import torch
 import numpy as np
 from tqdm import tqdm
-from utils import roll, fft_smooth, batch_std, blur_in_place, query
+from utils import roll, fft_smooth, batch_std, blur_in_place, adj_model
+from mei_process import MEIProcess
 #from scipy import signal, ndimage
+#from scipy.ndimage import label
 
 
 class MEI:
@@ -16,62 +18,17 @@ class MEI:
         self.img_shape = shape
 
 
-    #TODO: add support for multiple octaves
-    class MEIProcess:
-        def __init__(self, operation, **MEIParams):
-            self.operation = operation
-
-            self.mei = None
-            self.activation = None
-            self.monotonic = None
-            self.max_contrast = None
-            self.max_activation = None
-            self.sat_contrast = None
-            self.img_mean = None
-            self.lim_contrast = None
-
-            # mei parameters
-            self.iter_n = 1000          if 'iter_n' not in MEIParams else MEIParams['iter_n']
-            self.start_sigma = 1.5      if 'start_sigma' not in MEIParams else MEIParams['start_sigma']
-            self.end_sigma = 0.01       if 'end_sigma' not in MEIParams else MEIParams['end_sigma']
-            self.start_step_size = 3.0  if 'start_step_size' not in MEIParams else MEIParams['start_step_size']
-            self.end_step_size = 0.125  if 'end_step_size' not in MEIParams else MEIParams['end_step_size']
-            self.precond = 0#.1          if 'precond' not in MEIParams else MEIParams['precond']
-            self.step_gain = 0.1        if 'step_gain' not in MEIParams else MEIParams['step_gain']
-            self.jitter = 0             if 'jitter' not in MEIParams else MEIParams['jitter']
-            self.blur = True            if 'blur' not in MEIParams else MEIParams['blur']
-            self.norm = -1              if 'norm' not in MEIParams else MEIParams['norm']
-            self.train_norm = -1        if 'train_norm' not in MEIParams else MEIParams['train_norm']
-            self.clip = True            if 'clip' not in MEIParams else MEIParams['clip']
-
-            self.octaves = [
-                {
-                    'iter_n': self.iter_n,
-                    'start_sigma': self.start_sigma,
-                    'end_sigma': self.end_sigma,
-                    'start_step_size': self.start_step_size,
-                    'end_step_size': self.end_step_size,
-                },
-            ]
-
     def add_model(self, model):
         self.models.append(model)
 
     def remove_model(self, model):
         self.models.remove(model)
 
+
+    #TODO: implement WRONGMEI : generálásnál a mean-t használja std helyett is
     def generate(self, neuron_query, **MEIParams):
 
-        def adj_model(x):
-            count = 0
-            sum = None
-            for model in self.models:
-                y = query(model(x), neuron_query)
-                sum = y if count == 0 else sum + y
-                count += 1
-            return sum / count
-
-        process = self.MEIProcess(adj_model, **MEIParams)
+        process = MEIProcess(adj_model(self.models, neuron_query), bias=self.bias, scale=self.scale, device=self.device, **MEIParams)
 
         # generate initial random image
         background_color = np.float32([self.bias] * min(self.img_shape))
@@ -84,7 +41,7 @@ class MEI:
 
         with torch.no_grad():
             img = torch.Tensor(gen_image[None, ...]).to(self.device)
-            activation = adj_model(img).data.cpu().numpy()[0]
+            activation = process.operation(img).data.cpu().numpy()[0]
 
         #cont, vals, lim_contrast = MEI.contrast_tuning(adj_model, mei, device=self.device)
 
@@ -97,6 +54,45 @@ class MEI:
         #process.img_mean = mei.mean()
         #process.lim_contrast = lim_contrast
 
+        return process
+
+    def gradient_rf(self, neuron_query, **MEIParams):
+        def init_rf_image(stimulus_shape=(1, 36, 64)):
+            return torch.zeros(1, *stimulus_shape, device='cuda', requires_grad=True)
+
+        def linear_model(x):
+            return (x * rf).sum()
+
+        process = MEIProcess(adj_model(linear_model, neuron_query), bias=self.bias, scale=self.scale, device=self.device, **MEIParams)
+
+
+        X = init_rf_image(self.img_shape[1:])
+        y = process.operation(X)
+        y.backward()
+        point_rf = X.grad.data.cpu().numpy().squeeze()
+        rf = X.grad.data
+
+        # generate initial random image
+        background_color = np.float32([self.bias] * min(self.img_shape))
+        gen_image = np.random.normal(background_color, self.scale / 20, self.img_shape)
+        gen_image = np.clip(gen_image, -1, 1)
+
+        # generate class visualization via octavewise gradient ascent
+        gen_image = self.deepdraw(gen_image, process, random_crop=False)
+        rf = gen_image.squeeze()
+
+        with torch.no_grad():
+            img = torch.Tensor(gen_image[None, ...]).to(self.device)
+            activation = process.operation(img).data.cpu().numpy()[0]
+
+        cont, vals, lim_contrast = MEI.contrast_tuning(adj_model, rf, self.bias, self.scale)
+        process.mei = rf
+        process.monotonic = bool(np.all(np.diff(vals) >= 0))
+        process.max_activation = np.max(vals)
+        process.max_contrast = cont[np.argmax(vals)]
+        process.sat_contrast = np.max(cont)
+        process.point_rf = point_rf
+        process.activation = activation
         return process
 
 
@@ -422,8 +418,272 @@ class MEI:
         return cont, vals, lim_contrast
 
     @staticmethod
+    def adjust_contrast(img, contrast=-1, mu=-1, img_min=0, img_max=255, force=True, verbose=False, steps=5000):
+        """
+        Performs contrast adjustment of the image, being mindful of the image value bounds (e.g. [0, 255]). Given the bounds
+        the normal shift and scale will not guarantee that the resulting image still has the desired mean luminance
+        and contrast.
+        Args:
+            img: image to adjsut the contrast
+            contrast: desired contrast - this is taken to be the RMS contrast
+            mu: desired mean value of the final image
+            img_min: the minimum pixel intensity allowed
+            img_max: the maximum pixel intensity allowed
+            force: if True, iterative approach is taken to produce an image with the desired stats. This will likely cause
+            some pixels to saturate in the upper and lower bounds. If False, then image is scaled simply based on ratio of
+            current and desired contrast, and then clipped. This likely results in an image that is higher in contrast
+            than the original but not quite at the desired contrast and with some pixel information lost due to clipping.
+            verbose: If True, prints out progress during iterative adjustment
+            steps: If force=True, this sets the number of iterative steps to be used in adjusting the image. The larger the
+            value, the closer the final image would approach the desired contrast.
+
+        Returns:
+            adjusted_image - a new image adjusted from the original such that the desired mean/contrast is achieved to the
+                best of the configuration.
+            clipped - Whether any clipping took place. If True, it indicates that some clipping of pixel intensities occured
+                and thus some pixel information was lost.
+            actual_contrast - the final contrast of the image reached
+
+
+        """
+        current_contrast = img.std()
+
+        if contrast < 0:
+            gain = 1   # no adjustment of contrast
+        else:
+            gain = contrast / current_contrast
+
+        delta = img - img.mean()
+        if mu is None or mu < 0: # no adjustment of mean
+            mu = img.mean()
+
+        min_pdist = delta[delta > 0].min()
+        min_ndist = (-delta[delta < 0]).min()
+
+        # point beyond which scaling would completely saturate out the image (e.g. all pixels would be completely black or
+        # white)
+        max_lim_gain = max((img_max - mu) / min_pdist, (mu - img_min) / min_ndist)
+
+
+        vmax = delta.max()
+        vmin = delta.min()
+
+        # maximum gain that could be used without losing image information
+        max_gain = min((img_max - mu) / vmax, (img_min-mu) / vmin)
+
+        # if True, we already know that the desired contrast cannot be achieved without losing some pixel information
+        # into the saturation regime
+        clipped = gain > max_gain
+
+        v = np.linspace(0, (img_max-img_min), steps) # candidates for mean adjustment
+        if clipped and force:
+            if verbose:
+                print('Adjusting...')
+            cont = []
+            imgs = []
+            gains = np.logspace(np.log10(gain), np.log10(max_lim_gain), steps)
+            # for each gain, perform offset adjustment such that the mean is equal to the set value
+            for g in gains:
+                img = delta * g + mu
+                img = np.clip(img, img_min, img_max)
+                offset = img.mean() - mu # shift in clipped image mean caused by the clipping
+                if offset < 0: # pixel values needs to be raised
+                    offset = -offset
+                    mask = (img_max-img < v[:, None, None])
+                    nlow = mask.sum(axis=(1, 2)) # pixels that are closer to the bound than v
+                    nhigh = img.size - nlow
+                    # calculate the actual shift in mean that can be achieved by shifting all pixels by v
+                    # then clipping
+                    va = ((mask * (img_max-img)).sum(axis=(1, 2)) + v * nhigh) / (nlow + nhigh)
+
+                    # find the best candidate offset that achieves closest to the desired shift in the mean
+                    pos = np.argmin(np.abs(va - offset))
+                    actual_offset = -v[pos]
+                else:
+                    mask = (img-img_min < v[:, None, None])
+                    nlow = mask.sum(axis=(1, 2))
+                    nhigh = img.size - nlow
+                    # actual shift in mean that can be achieved by shifting all pixels by v
+                    va = ((mask * (img-img_min)).sum(axis=(1, 2)) + v * nhigh) / (nlow + nhigh)
+                    pos = np.argmin(np.abs(va - offset))
+                    actual_offset = v[pos]
+
+
+                img = img - actual_offset
+                img = np.clip(img, img_min, img_max)
+                # actual contrast achieved with this scale and adjustment
+                c = img.std()
+                cont.append(c)
+                imgs.append(img)
+                if c > contrast:
+                    break
+            loc = np.argmin(np.abs(np.array(cont) - contrast))
+            adj_img = imgs[loc]
+        else:
+            adj_img = delta * gain + mu
+            adj_img = np.clip(adj_img, img_min, img_max)
+        actual_contrast = adj_img.std()
+        return adj_img, clipped, actual_contrast
+
+
+
+    @staticmethod
+    def adjust_contrast_with_mask(img, img_mask=None, contrast=-1, mu=-1, img_min=0, img_max=255, force=True, verbose=False,
+                                  mu_steps=500, gain_steps=500):
+        """
+        A version of the contrast adjustment that is mindful of the mask
+
+        Performs contrast adjustment of the image, being mindful of the image value bounds (e.g. [0, 255]). Given the bounds
+        the normal shift and scale will not guarantee that the resulting image still has the desired mean luminance
+        and contrast.
+        Args:
+            img: image to adjsut the contrast
+            contrast: desired contrast - this is taken to be the RMS contrast
+            mu: desired mean value of the final image
+            img_min: the minimum pixel intensity allowed
+            img_max: the maximum pixel intensity allowed
+            force: if True, iterative approach is taken to produce an image with the desired stats. This will likely cause
+            some pixels to saturate in the upper and lower bounds. If False, then image is scaled simply based on ratio of
+            current and desired contrast, and then clipped. This likely results in an image that is higher in contrast
+            than the original but not quite at the desired contrast and with some pixel information lost due to clipping.
+            verbose: If True, prints out progress during iterative adjustment
+            steps: If force=True, this sets the number of iterative steps to be used in adjusting the image. The larger the
+            value, the closer the final image would approach the desired contrast.
+
+        Returns:
+            adjusted_image - a new image adjusted from the original such that the desired mean/contrast is achieved to the
+                best of the configuration.
+            clipped - Whether any clipping took place. If True, it indicates that some clipping of pixel intensities occured
+                and thus some pixel information was lost.
+            actual_contrast - the final contrast of the image reached
+
+
+        """
+        if img_mask is None:
+            img_mask = np.ones_like(img)
+
+        def get_mu(x):
+            return np.sum(img_mask * x) / np.sum(img_mask)
+
+        def get_sigma(x):
+            h, w = x.shape[-2:]
+            avg = get_mu(x)
+            return np.sqrt(np.sum(img_mask ** 2 * (x - avg) ** 2) / (h * w))
+
+        adj_img = img * img_mask + mu * (1 - img_mask) #adj_img volt
+        adj_img = np.clip(adj_img, img_min, img_max)
+        mimg = img_mask * img
+        test_img = np.clip(mimg - mimg.mean() + mu, img_min, img_max)
+        current_contrast = test_img.std()
+        if verbose:
+            print('Initial contrast:', current_contrast)
+
+        if contrast < 0:
+            gain = 1  # no adjustment of contrast
+        else:
+            gain = contrast / current_contrast
+
+        delta = (img - get_mu(img))  # * bin_mask # only consider deltas in mask region
+        if mu is None or mu < 0:  # no adjustment of mean
+            mu = get_mu(img)
+
+        min_pdist = delta[delta > 0].min()
+        min_ndist = (-delta[delta < 0]).min()
+
+        # point beyond which scaling would completely saturate out the image (e.g. all pixels would be completely black or
+        # white)
+        max_lim_gain = min(max((img_max - mu) / min_pdist, (mu - img_min) / min_ndist), 100)
+
+        vmax = (delta * img_mask).max()
+        vmin = (delta * img_mask).min()
+
+        # maximum gain that could be used without losing image information
+        max_gain = min((img_max - mu) / vmax, (img_min - mu) / vmin)
+
+
+        # if True, we already know that the desired contrast cannot be achieved without losing some pixel information
+        # into the saturation regime
+        clipped = gain > max_gain
+        print('gains', gain , max_gain)
+
+        v = np.linspace(0, (img_max - img_min), mu_steps)  # candidates for mean adjustment
+
+        if clipped and force:
+            if verbose:
+                print('Adjusting...')
+            cont = []
+            imgs = []
+            gains = np.logspace(np.log10(gain), np.log10(max_lim_gain), gain_steps)
+            # for each gain, perform offset adjustment such that the mean is equal to the set value
+            for g in tqdm(gains, disable=(not verbose)):
+                print('')
+                img = delta * g + mu
+                img = np.clip(img, img_min, img_max)
+
+                offset = mu - get_mu(img)  # shift in clipped image mean caused by the clipping
+                if offset > 0:
+                    sign = 1
+                    edge = img_max
+                else:
+                    sign = -1
+                    edge = img_min
+
+                offset = sign * offset
+                mask = (sign * (edge - img) < v[:, None, None])
+
+                nlow = (mask * img_mask).sum(axis=(1, 2))  # effective number of pixels that are closer to the bound than v
+                nhigh = img_mask.sum() - nlow
+
+                # calculate the actual shift in mean that can be achieved by shifting all pixels by v
+                # then clipping
+                va = ((mask * img_mask * sign * (edge - img)).sum(axis=(1, 2)) + (
+                        v[:, None, None] * img_mask * (1 - mask)).sum(axis=(1, 2))) / (nlow + nhigh)
+
+                # find the best candidate offset that achieves closest to the desired shift in the mean
+                pos = np.argmin(np.abs(va - offset))
+                actual_offset = sign * v[pos]
+
+                img = img + actual_offset
+                img = np.clip(img, img_min, img_max)
+                # actual contrast achieved with this scale and adjustment
+                c = get_sigma(img)
+                print('contrast now', c)
+                cont.append(c)
+                imgs.append(img)
+                if c > contrast:
+                    break
+            loc = np.argmin(np.abs(np.array(cont) - contrast))
+            adj_img = imgs[loc]
+        else:
+            adj_img = delta * gain + mu
+
+        adj_img = adj_img * img_mask + mu * (1 - img_mask)
+        adj_img = np.clip(adj_img, img_min, img_max)
+        actual_contrast = adj_img.std()
+        return adj_img, clipped, actual_contrast
+
+    @staticmethod
     def create_gabor(height=36, width=64, phase=0, wavelength=10, orientation=0, sigma=5,
                      dy=0, dx=0):
+        """ # lists of gabor parameters to search over for the best gabor
+
+        gaborrange_id:  int     # id for each range
+        ---
+        height:         int         # (px) image height
+        width:          int         # (px) image width
+        phases:         longblob    # (degree) angle at which to start the sinusoid
+        wavelengths:    longblob    # (px) wavelength of the sinusoid (1 / spatial frequency)
+        orientations:   longblob    # (degree) counterclockwise rotation to apply (0 is horizontal, 90 vertical)
+        sigmas:         longblob    # (px) sigma of the gaussian mask used
+        dys:            longblob    # (px/height) amount of translation in y (positive moves downwards)
+        dxs:            longblob    # (px/width) amount of translation in x (positive moves right)
+
+        contents = [
+            [1, 36, 64, [0, 90, 180, 270], [4, 7, 10, 15, 20], np.linspace(0, 180, 8, endpoint=False),
+             [2, 3, 5, 7, 9], np.linspace(-0.3, 0.3, 7), np.linspace(-0.3, 0.3, 13)],
+        ]
+        """
+
         """ Create a gabor patch (sinusoidal + gaussian).
 
         Arguments:
@@ -479,3 +739,4 @@ class MEI:
             raise ValueError('Dimensions of gabor do not match desired dimensions.')
 
         return gabor.astype(np.float32)
+
