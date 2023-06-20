@@ -1,8 +1,7 @@
 import torch
 import numpy as np
-from tqdm import tqdm
 from gabor import Gabor
-from utils import adj_model
+from utils import adj_model, contrast_tuning
 from mei_process import MEIProcess
 
 
@@ -22,14 +21,14 @@ class MEI(Gabor):
         gen_image = np.clip(gen_image, -1, 1)
 
         # generate class visualization via octavewise gradient ascent
-        gen_image = self.deepdraw(gen_image, process, random_crop=False)
+        gen_image = process.deepdraw(gen_image, random_crop=False)
         mei = gen_image.squeeze()
 
         with torch.no_grad():
             img = torch.Tensor(gen_image[None, ...]).to(self.device)
             activation = process.operation(img).data.cpu().numpy()[0]
 
-        #cont, vals, lim_contrast = MEI.contrast_tuning(adj_model, mei, device=self.device)
+        #cont, vals, lim_contrast = contrast_tuning(adj_model, mei, device=self.device)
 
         process.mei = mei
         process.activation = activation
@@ -39,7 +38,6 @@ class MEI(Gabor):
         #process.sat_contrast = np.max(cont)
         #process.img_mean = mei.mean()
         #process.lim_contrast = lim_contrast
-
         return process
 
     def gradient_rf(self, neuron_query, **MEIParams):
@@ -64,14 +62,14 @@ class MEI(Gabor):
         gen_image = np.clip(gen_image, -1, 1)
 
         # generate class visualization via octavewise gradient ascent
-        gen_image = self.deepdraw(gen_image, process, random_crop=False)
+        gen_image = process.deepdraw(gen_image, random_crop=False)
         rf = gen_image.squeeze()
 
         with torch.no_grad():
             img = torch.Tensor(gen_image[None, ...]).to(self.device)
             activation = process.operation(img).data.cpu().numpy()[0]
 
-        cont, vals, lim_contrast = MEI.contrast_tuning(adj_model, rf, self.bias, self.scale)
+        cont, vals, lim_contrast = contrast_tuning(adj_model, rf, self.bias, self.scale)
         process.mei = rf
         process.monotonic = bool(np.all(np.diff(vals) >= 0))
         process.max_activation = np.max(vals)

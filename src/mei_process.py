@@ -1,10 +1,10 @@
-#import scipy
 import torch
 import numpy as np
 from skimage.morphology import convex_hull_image, erosion, square
 from scipy.ndimage.filters import gaussian_filter
-from utils import fit_gauss_envelope, remove_small_area, adj_model, product, roll
+from utils import fit_gauss_envelope, remove_small_area, product, roll, batch_std, fft_smooth, blur_in_place
 from tqdm import tqdm
+#import scipy
 #from scipy import signal, ndimage
 #from scipy.ndimage import label
 
@@ -154,7 +154,6 @@ class MEIProcess:
             raise ValueError('You need to pass at least two initial images. Did you mean to '
                              'use deepdraw()?')
 
-
         # get input dimensions from net
         if original_size is None:
             c, w, h = image.shape[-3:]
@@ -231,7 +230,7 @@ class MEIProcess:
 
                     div_term = div_weight * distance
 
-                self._make_step(process, src, sigma=sigma, step_size=step_size, add_loss=div_term)
+                self._make_step(src, sigma=sigma, step_size=step_size, add_loss=div_term)
 
                 # TODO: Maybe save the MEIs every number of iterations and return all MEIs.
                 if i % 10 == 0:
@@ -243,14 +242,9 @@ class MEIProcess:
         # returning the resulting image
         return image
 
-
-
-
-
-    def _make_step(self, process, src,
-                   step_size=1.5, sigma=None,
-                   eps=1e-12, add_loss=0):
-        """ Update src in place making a gradient ascent step in the output of net.
+    def _make_step(self, src, step_size=1.5, sigma=None, eps=1e-12, add_loss=0):
+        """
+        Update src in place making a gradient ascent step in the output of net.
 
         Arguments:
             net (nn.Module or function): A backpropagatable function/module that receives
@@ -277,30 +271,30 @@ class MEIProcess:
             src.grad.zero_()
 
         # apply jitter shift
-        if process.jitter > 0:
-            ox, oy = np.random.randint(-process.jitter, process.jitter + 1, 2)  # use uniform distribution
+        if self.jitter > 0:
+            ox, oy = np.random.randint(-self.jitter, self.jitter + 1, 2)  # use uniform distribution
             ox, oy = int(ox), int(oy)
             src.data = roll(roll(src.data, ox, -1), oy, -2)
 
         img = src
-        if process.train_norm is not None and process.train_norm > 0.0:
+        if self.train_norm is not None and self.train_norm > 0.0:
             # normalize the image in backpropagatable manner
-            img_idx = batch_std(src.data) + eps > process.train_norm / self.scale  # images to update
+            img_idx = batch_std(src.data) + eps > self.train_norm / self.scale  # images to update
             if img_idx.any():
                 img = src.clone() # avoids overwriting original image but lets gradient through
                 img[img_idx] = ((src[img_idx] / (batch_std(src[img_idx], keepdim=True) +
-                                                 eps)) * (process.train_norm / self.scale))
+                                                 eps)) * (self.train_norm / self.scale))
 
-        y = process.operation(img)
+        y = self.operation(img)
         (y.mean() + add_loss).backward()
 
         grad = src.grad
-        if process.precond > 0:
-            grad = fft_smooth(grad, process.precond)
+        if self.precond > 0:
+            grad = fft_smooth(grad, self.precond)
 
         # src.data += (step_size / (batch_mean(torch.abs(grad.data), keepdim=True) + eps)) * (step_gain / 255) * grad.data
         a = step_size / (torch.abs(grad.data).mean() + eps)
-        b = process.step_gain * grad.data  #itt (step gain -255) volt az egyik szorzó
+        b = self.step_gain * grad.data  #itt (step gain -255) volt az egyik szorzó
         src.data += a * b
         # * both versions are equivalent for a single-image batch, for batches with more than
         # one image the first one is better but it drawns out the gradients that are spatially
@@ -317,18 +311,18 @@ class MEIProcess:
         # alright (also image generation works normally).
 
         #print(src.data.std() * scale)
-        if process.norm is not None and process.norm > 0.0:
-            data_idx = batch_std(src.data) + eps > process.norm / self.scale
-            src.data[data_idx] =  (src.data / (batch_std(src.data, keepdim=True) + eps) * process.norm / self.scale)[data_idx]
+        if self.norm is not None and self.norm > 0.0:
+            data_idx = batch_std(src.data) + eps > self.norm / self.scale
+            src.data[data_idx] =  (src.data / (batch_std(src.data, keepdim=True) + eps) * self.norm / self.scale)[data_idx]
 
-        if process.jitter > 0:
+        if self.jitter > 0:
             # undo the shift
             src.data = roll(roll(src.data, -ox, -1), -oy, -2)
 
-        if process.clip:
+        if self.clip:
             src.data = torch.clamp(src.data, -self.bias / self.scale, (1 - self.bias) / self.scale)
 
-        if process.blur:
+        if self.blur:
             blur_in_place(src.data, sigma)
 
     def _gaussian_mask(self, factor):
@@ -358,7 +352,6 @@ class MEIProcess:
         # blur the edge, giving smooth transition
         mask = gaussian_filter(mask.astype(float), sigma=filter_sigma)
         return mask
-
 
     def _mei_tight_mask(self, stdev_size_thr=1, filter_sigma=1, target_reduction_ratio=0.9):
         # set in "c" contiguous
@@ -407,8 +400,6 @@ class MEIProcess:
         filler = np.full_like(img, background)
         return img * mask + filler * (1-mask)
 
-
-
     def best_match(self, dataloader, mask=None, factor=1.0):
 
         if mask is None:
@@ -428,16 +419,12 @@ class MEIProcess:
         for image in tqdm(dataloader):
             image = np.atleast_3d(mask(image))  # ensure channel dimension exist
             image = torch.tensor(image[None, ...], dtype=torch.float32, requires_grad=True, device=self.device)
-            # --- Compute gradient receptive field at the image
             y = self.operation(image)
             img_activations.append(y.item())
 
         img_activations = np.array(img_activations)
         pos = np.argmax(img_activations)
         return img_activations[pos], dataloader.dataset[pos]
-
-
-
 
     #TODO: paraméterek még kellenének
     def responses(self, images, mask='gaussian', factor=1.0):
@@ -464,7 +451,6 @@ class MEIProcess:
 
         return original_img_activations, masked_img_activations
 
-
     #TODO: nem fix am
     def compute_spatial_frequency(self, img):
         from matplotlib import pyplot as plt
@@ -488,7 +474,6 @@ class MEIProcess:
         plt.show()
 
         return freq_cols, freq_rows, magnitude_spectrum
-
 
     def jitter_in_place(self, jitter_size):
 

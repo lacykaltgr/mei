@@ -1,7 +1,7 @@
 from enum import Enum
 
-class NeuronQuery(Enum):
 
+class NeuronQuery(Enum):
     ALL = 0
     RANDOM = 1
 

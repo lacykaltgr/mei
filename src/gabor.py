@@ -1,47 +1,14 @@
 import numpy as np
+from src.neuron_query import NeuronQuery
 from utils import adjust_img_stats, adj_model
 import torch
 from tqdm import tqdm
+import config
+from scipy import optimize
+from scipy import ndimage, signal
 
 
 class Gabor:
-
-    """
-        height:         int         # (px) image height
-    width:          int         # (px) image width
-    phases:         longblob    # (degree) angle at which to start the sinusoid
-    wavelengths:    longblob    # (px) wavelength of the sinusoid (1 / spatial frequency)
-    orientations:   longblob    # (degree) counterclockwise rotation to apply (0 is horizontal, 90 vertical)
-    sigmas:         longblob    # (px) sigma of the gaussian mask used
-    dys:            longblob    # (px/height) amount of translation in y (positive moves downwards)
-    dxs:            longblob    # (px/width) amount of translation in x (positive moves right)
-    """
-    ranges = [
-        [1, 36, 64, [0, 90, 180, 270], [4, 7, 10, 15, 20], np.linspace(0, 180, 8, endpoint=False),
-         [2, 3, 5, 7, 9], np.linspace(-0.3, 0.3, 7), np.linspace(-0.3, 0.3, 13)],
-    ]
-
-
-    """ # limits of some parameters search range to find the optimal gabor
-
-    gaborlimits_id:     int         # id of this search range
-    ---
-    height:             int         # (px) height of image 
-    width:              int         # (px) width of image
-    lower_phase:        float
-    upper_phase:       float
-    lower_wavelength:   float
-    upper_wavelength:   float
-    lower_orientation:  float
-    upper_orientation:  float
-    lower_sigma:        float
-    upper_sigma:        float
-    lower_dy:           float
-    upper_dy:           float
-    lower_dx:           float
-    upper_dx:           float
-    """
-    limits = [[1, 36, 64, 0, 360, 4, 20, 0, 180, 2, 9, -0.35, 0.35, -0.35, 0.35], ]
 
     def __init__(self, models, shape, bias=0, scale=1, device='cpu'):
         self.models = models
@@ -49,6 +16,8 @@ class Gabor:
         self.scale = scale
         self.device = device
         self.img_shape = shape
+        self.ranges = config.gabor_ranges
+        self.limits = config.gabor_limits
 
     def add_model(self, model):
         self.models.append(model)
@@ -56,61 +25,66 @@ class Gabor:
     def remove_model(self, model):
         self.models.remove(model)
 
-    def best_gabor(self, gabor_loader, neuron_query, **gabor_params):
-        # find the most exciting gabor for each cell in this dataset
-        #TODO: contrast_params
+    def set_limits(self, **limits):
+        for key, value in limits.items():
+            self.limits[key] = value
 
-        readout_keys = None #TODO: neuron query
+    def set_ranges(self, **ranges):
+        for key, value in ranges.items():
+            self.ranges[key] = value
 
-        for readout_key in readout_keys:
-            # Evaluate all gabors
-            activations = []
-            with torch.no_grad():
-                for i, gabors in tqdm(enumerate(gabor_loader)):
-                    # norm = gabors
-                    norm = (gabors - self.bias) / self.scale
-                    img = torch.Tensor(norm[:, None, :, :]).to('cuda')
-                    img_activations = self.operation(img).cpu().numpy()
+    def best_gabor(self, neuron_query=NeuronQuery.ALL, gabor_loader=None):
+        """
+        Find the most exciting gabor for each cell in the neuron query
 
-                    activations.append(img_activations)
-            activations = np.concatenate(activations)  # num_gabors x num_cells
+        :param neuron_query:
+        :param gabor_loader:
+        :return:
+        """
+        # TODO: mean/contrast_params
 
-            # Check we got all gabors and all cells
-            if len(activations) != len(gabor_loader.dataset):
-                raise ValueError('Some gabor patches did not get processed')
+        if gabor_loader is None:
+            gabor_loader = self.create_gabor_loader(self.ranges)
 
-            results = []
+        operation = adj_model(self.models, neuron_query)
 
-            for neuron_id, neuron_activations in enumerate(activations.T):
-                # Select best gabor
-                best_idx = np.argmax(neuron_activations)
-                best_activation = neuron_activations[best_idx]
-                (best_phase, best_wavelength, best_orientation, best_sigma, best_dy,
-                 best_dx) = dataset.args[best_idx][2:]
+        # Evaluate all gabors
+        activations = []
+        with torch.no_grad():
+            for i, gabor in tqdm(enumerate(gabor_loader)):
+                # norm = gabors
+                norm = (gabor["gabor"] - self.bias) / self.scale
+                img = torch.Tensor(norm[:, None, :, :]).to('cuda')
+                img_activations = operation(img).cpu().numpy()
+                activations.append(img_activations)
+        activations = np.concatenate(activations)  # num_gabors x num_cells
 
+        # Check we got all gabors and all cells
+        if len(activations) != len(gabor_loader.dataset):
+            raise ValueError('Some gabor patches did not get processed')
 
-                # Insert
-                results.append({'neuron_id': neuron_id,
-                                'readout_key': readout_key,
-                                'best_activation': best_activation,
-                                'best_phase': best_phase,
-                                'best_wavelength': best_wavelength,
-                                'best_orientation': best_orientation,
-                                'best_sigma': best_sigma, 'best_dy': best_dy,
-                                'best_dx': best_dx})
+        results = []
+        for neuron_id, neuron_activations in enumerate(activations.T):
+            # Select best gabor
+            best_idx = np.argmax(neuron_activations)
+            best_activation = neuron_activations[best_idx]
+            (best_phase, best_wavelength, best_orientation, best_sigma, best_dy,
+             best_dx) = gabor_loader[best_idx]['params']
 
-    def optimal_gabor(
-                self,
-                target_mean=None,
-                target_contrast=None,
-        ):
-        """ # find parameters that produce an optimal gabor for this unit
+            # Insert
+            results.append({'neuron_id': neuron_id,
+                            'best_activation': best_activation,
+                            'best_phase': best_phase,
+                            'best_wavelength': best_wavelength,
+                            'best_orientation': best_orientation,
+                            'best_sigma': best_sigma, 'best_dy': best_dy,
+                            'best_dx': best_dx})
+        return results
 
-        -> TargetModel
-        -> ProcessedImageConfig
-        -> TargetDataset.Unit
-        -> GaborLimits
-        ---
+    def optimal_gabor(self, neuron_query=NeuronQuery.ALL, target_mean=None, target_contrast=None):
+        """
+        Find parameters that produce an optimal gabor for this unit
+
         best_gabor:         longblob    # best gabor image
         best_seed:          int         # random seed used to obtain the best gabor
         best_activation:    float       # activation at the best gabor image
@@ -121,19 +95,13 @@ class Gabor:
         best_dy:            float       # (px/height) amount of translation in y (positive moves downwards)
         best_dx:            float       # (px/width) amount of translation in x (positive moves right)
         """
-
-        from scipy import optimize
-
-        # Get optimization bounds per parameter
-        bounds = self.limits
-
         # Write loss function to be optimized
-        def neg_model_activation(params, bounds=bounds, height=self.limits['height'],
-                                 width=self.limits['width'], target_mean=target_mean,
-                                 target_contrast=target_contrast, train_mean=self.bias,
-                                 train_std=self.scale, model=adj_model):
+
+        operation = adj_model(self.models, neuron_query)
+
+        def neg_model_activation(params):
             # Get params
-            params = [np.clip(p, l, u) for p, (l, u) in zip(params, bounds)]  # *
+            params = [np.clip(p, l, u) for p, (l, u) in zip(params, self.limits)]  # *
             phase, wavelength, orientation, sigma, dy, dx = params
             # * some local optimization methods in scipy.optimize receive parameter bounds
             # as arguments, however, empirically they seem to have lower performance than
@@ -141,33 +109,35 @@ class Gabor:
             # based methods did worse than direct search ones.
 
             # Create gabor
-            gabor = self.create_gabor(height=height, width=width, phase=phase,
-                                      wavelength=wavelength, orientation=orientation,
-                                      sigma=sigma, dy=dy, dx=dx, target_mean=target_mean,target_contrast=target_contrast)
-
-
-
+            gabor = self.create_gabor(height=params['height'], width=params['width'],
+                                      phase=phase, wavelength=wavelength, orientation=orientation,
+                                      sigma=sigma, dy=dy, dx=dx,
+                                      target_mean=target_mean, target_contrast=target_contrast)
 
             # Compute activation
             with torch.no_grad():
-                norm = (gabor - train_mean) / train_std
+                norm = (gabor - self.bias) / self.scale
                 img = torch.Tensor(norm[None, None, :, :]).to('cuda')
-                activation = model(img).item()
+                activation = operation(img).item()
 
             return -activation
 
         # Find best parameters (simulated annealing -> local search)
+        best_params = None
         best_activation = np.inf
+        best_seed = None
         for seed in tqdm([1, 12, 123, 1234, 12345]):  # try 5 diff random seeds
-            res = optimize.dual_annealing(neg_model_activation, bounds=bounds,
-                                          no_local_search=True, maxiter=300, seed=seed)
+            res = optimize.dual_annealing(neg_model_activation, bounds=self.limits, no_local_search=True, maxiter=300, seed=seed)
             res = optimize.minimize(neg_model_activation, x0=res.x, method='Nelder-Mead')
 
             if res.fun < best_activation:
                 best_activation = res.fun
                 best_params = res.x
                 best_seed = seed
-        best_params = [np.clip(p, l, u) for p, (l, u) in zip(best_params, bounds)]
+        if best_params is None:
+            raise ValueError('No solution found')
+
+        best_params = [np.clip(p, l, u) for p, (l, u) in zip(best_params, self.limits)]
 
         # Create best gabor
         best_gabor = self.create_gabor(height=self.limits['height'], width=self.limits['width'],
@@ -187,7 +157,6 @@ class Gabor:
                 'best_dy': best_params[4],
                 'best_dx': best_params[5]}
 
-
     @staticmethod
     def create_gabor(
             height=36,
@@ -203,25 +172,6 @@ class Gabor:
             img_min=-1,
             img_max=1,
     ):
-        """ # lists of gabor parameters to search over for the best gabor
-
-        gaborrange_id:  int     # id for each range
-        ---
-        height:         int         # (px) image height
-        width:          int         # (px) image width
-        phases:         longblob    # (degree) angle at which to start the sinusoid
-        wavelengths:    longblob    # (px) wavelength of the sinusoid (1 / spatial frequency)
-        orientations:   longblob    # (degree) counterclockwise rotation to apply (0 is horizontal, 90 vertical)
-        sigmas:         longblob    # (px) sigma of the gaussian mask used
-        dys:            longblob    # (px/height) amount of translation in y (positive moves downwards)
-        dxs:            longblob    # (px/width) amount of translation in x (positive moves right)
-
-        contents = [
-            [1, 36, 64, [0, 90, 180, 270], [4, 7, 10, 15, 20], np.linspace(0, 180, 8, endpoint=False),
-             [2, 3, 5, 7, 9], np.linspace(-0.3, 0.3, 7), np.linspace(-0.3, 0.3, 13)],
-        ]
-        """
-
         """ Create a gabor patch (sinusoidal + gaussian).
     
         Arguments:
@@ -257,13 +207,13 @@ class Gabor:
         gabor = np.tile(sin, (imwidth, 1)).T
 
         # Rotate around center
-        #gabor = ndimage.rotate(gabor, orientation, reshape=False)
+        gabor = ndimage.rotate(gabor, orientation, reshape=False)
 
         # Apply gaussian mask
-        #gaussy = signal.gaussian(imheight, std=sigma)
-        #gaussx = signal.gaussian(imwidth, std=sigma)
-        #mask = np.outer(gaussy, gaussx)
-        #gabor = gabor * mask
+        gaussy = signal.gaussian(imheight, std=sigma)
+        gaussx = signal.gaussian(imwidth, std=sigma)
+        mask = np.outer(gaussy, gaussx)
+        gabor = gabor * mask
 
         # Translate (this is only approximate but it should be good enough)
         if abs(dx) > 1 or abs(dy) > 1:
@@ -281,20 +231,33 @@ class Gabor:
         elif target_mean is not None or target_contrast is not None:
             raise ValueError('If you want to adjust the mean or contrast, you must specify both.')
 
-        #if lum is not None:
-            # upscale the image
-            #lum_gabor = ndimage.zoom(gabor, zoom=zoom_factor, mode='reflect')
-            #key['gabor_mu'] = lum_gabor.mean()
-            #key['gabor_contrast'] = lum_gabor.std()
+        # if lum is not None:
+        # upscale the image
+        # lum_gabor = ndimage.zoom(gabor, zoom=zoom_factor, mode='reflect')
+        # key['gabor_mu'] = lum_gabor.mean()
+        # key['gabor_contrast'] = lum_gabor.std()
 
-            # invert gamma transformation into image space
-            #gabor = np.clip(f_inv(lum_gabor), 0, 255)
+        # invert gamma transformation into image space
+        # gabor = np.clip(f_inv(lum_gabor), 0, 255)
 
-            #small_gabor = cv2.resize(gabor, original_shape, interpolation=cv2.INTER_AREA).astype(np.float32)
+        # small_gabor = cv2.resize(gabor, original_shape, interpolation=cv2.INTER_AREA).astype(np.float32)
 
         return gabor.astype(np.float32)
 
-
     @staticmethod
-    def create_gabor_loader():
-        pass
+    def create_gabor_loader(param_ranges):
+        """
+        Grid search over gabor parameters then return a loader with these
+        :return: data loader with gabor patches
+        """
+        import itertools
+
+        gabors = []
+
+        param_combinations = itertools.product(*param_ranges.values())
+        for params in param_combinations:
+            param_values = dict(zip(param_ranges.keys(), params))
+            gabor = Gabor.create_gabor(**param_values)
+            gabors.append(dict(gabor=gabor, params=param_values))
+
+        return gabors

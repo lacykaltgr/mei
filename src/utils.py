@@ -5,7 +5,6 @@ from numpy.linalg import inv, cholesky
 import warnings
 from tqdm import tqdm
 #from scipy import ndimage
-from itertools import product, zip_longest, count
 
 def fft_smooth(grad, factor=1/4):
     """
