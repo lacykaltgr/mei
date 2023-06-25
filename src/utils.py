@@ -1,10 +1,97 @@
-is_cuda = lambda m: next(m.parameters()).is_cuda
 import torch
 import numpy as np
 from numpy.linalg import inv, cholesky
 import warnings
 from tqdm import tqdm
+from skimage.morphology import convex_hull_image, erosion, square
+from scipy.ndimage.filters import gaussian_filter
 #from scipy import ndimage
+
+
+def gaussian_mask(img, factor):
+    *_, mask = fit_gauss_envelope(img)
+    return mask ** factor
+
+
+def gaussian_mask_with_info(img, factor):
+    mu, cov, mask = fit_gauss_envelope(img)
+    mu_x = mu[0]
+    mu_y = mu[1]
+    cov_x = cov[0, 0]
+    cov_y = cov[1, 1]
+    cov_xy = cov[0, 1]
+    mei_mask = mask ** factor
+    return mei_mask, mu_x, mu_y, cov_x, cov_y, cov_xy
+
+
+def mei_mask(img, delta_thr=16, size_thr=50, expansion_sigma=3, expansion_thr=0.3, filter_sigma=2):
+    delta = img - img.mean()
+    mask = np.abs(delta) > delta_thr
+    # remove small lobes - likely an artifact
+    mask = remove_small_area(mask, size_threshold=size_thr)
+    # fill in the gap between lobes
+    mask = convex_hull_image(mask)
+    # expand the size of the mask
+    mask = gaussian_filter(mask.astype(float), sigma=expansion_sigma) > expansion_thr
+    # blur the edge, giving smooth transition
+    mask = gaussian_filter(mask.astype(float), sigma=filter_sigma)
+    return mask
+
+def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, target_reduction_ratio=0.9):
+    def get_activation(mei):
+        with torch.no_grad():
+            img = torch.Tensor(mei[..., None]).to(device)
+            activation = operation(img).data.cpu().numpy()[0]
+        return activation
+
+    delta = img - img.mean()
+    fluc = np.abs(delta)
+    thr = np.std(fluc) * stdev_size_thr
+
+    # original mask
+    mask = convex_hull_image((fluc > thr).astype(float))
+    fm = gaussian_filter(mask.astype(float), sigma=filter_sigma)
+    masked_img = fm * img + (1 - fm) * img.mean()
+    activation = base_line = get_activation(masked_img)
+
+    count = 0
+    while (activation > base_line * target_reduction_ratio):
+        mask = erosion(mask, square(3))
+        fm = gaussian_filter(mask.astype(float), sigma=filter_sigma)
+        masked_img = fm * img + (1 - fm) * img.mean()
+        activation = get_activation(masked_img)
+        count += 1
+
+        if count > 100:
+            print('This has been going on for too long! - aborting')
+            raise ValueError('The activation does not reduce for the given setting')
+
+    reduction_ratio = activation / base_line
+    return fm, reduction_ratio
+
+
+def mask_image(img, mask='gaussian', background=0, factor=1.0, operation=lambda x: x, device='cpu'):
+    """
+    Applies the mask `mask` onto the `img`. The completely masked area is then
+    replaced with the value `background`.
+
+
+    Returns: masked image
+    """
+    if mask is None:
+        return img
+    elif mask == 'gaussian':
+        _mask = gaussian_mask(img, factor)
+    elif mask == 'mei':
+        _mask = mei_mask(img)
+    elif mask == 'mei_tight':
+        _mask, _ = mei_tight_mask(img, operation, device)
+    else:
+        raise ValueError(f'Unknown mask type: {mask}')
+
+    filler = np.full_like(img, background)
+    return img * mask + filler * (1 - _mask)
+
 
 def fft_smooth(grad, factor=1/4):
     """
@@ -76,12 +163,6 @@ def batch_std(batch, keepdim=False, unbiased=True):
     return std
 
 
-def query(x, query):
-    for i in range(len(query)):
-        x = x[:, query[i]]
-    return x
-
-
 def gauss2d(vx, vy, mu, cov):
     input_shape = vx.shape
     mu_x, mu_y = mu
@@ -131,17 +212,6 @@ def remove_small_area(mask, size_threshold=50):
             mask_mod[area] = 0
     return mask_mod
 
-
-def adj_model(models, neuron_query):
-    def adj_model_fn(x):
-        count = 0
-        sum = None
-        for model in models:
-            y = query(model(x), neuron_query)
-            sum = y if count == 0 else sum + y
-            count += 1
-        return sum / count
-    return adj_model_fn
 
 
 def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_lim=False, device='cpu'):
@@ -376,8 +446,6 @@ def adjust_contrast_with_mask(img, img_mask=None, contrast=-1, mu=-1, img_min=0,
             current and desired contrast, and then clipped. This likely results in an image that is higher in contrast
             than the original but not quite at the desired contrast and with some pixel information lost due to clipping.
             verbose: If True, prints out progress during iterative adjustment
-            steps: If force=True, this sets the number of iterative steps to be used in adjusting the image. The larger the
-            value, the closer the final image would approach the desired contrast.
 
         Returns:
             adjusted_image - a new image adjusted from the original such that the desired mean/contrast is achieved to the

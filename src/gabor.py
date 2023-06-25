@@ -1,17 +1,20 @@
 import numpy as np
-from src.neuron_query import NeuronQuery
-from utils import adjust_img_stats, adj_model
 import torch
 from tqdm import tqdm
-import config
 from scipy import optimize
 from scipy import ndimage, signal
+
+from . import configs as config
+from .neuron_query import NeuronQuery
+from .process import GaborProcess
+from .utils import adjust_img_stats, mask_image
+from .neuron_query import adj_model
 
 
 class Gabor:
 
-    def __init__(self, models, shape, bias=0, scale=1, device='cpu'):
-        self.models = models
+    def __init__(self, models, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
+        self.models = models if models is not None else []
         self.bias = bias
         self.scale = scale
         self.device = device
@@ -35,7 +38,7 @@ class Gabor:
 
     def best_gabor(self, neuron_query=NeuronQuery.ALL, gabor_loader=None):
         """
-        Find the most exciting gabor for each cell in the neuron query
+        Find the most exciting gabor for cells in the neuron query
 
         :param neuron_query:
         :param gabor_loader:
@@ -145,6 +148,8 @@ class Gabor:
                                        orientation=best_params[2], sigma=best_params[3],
                                        dy=best_params[4], dx=best_params[5])
         best_activation = -neg_model_activation(best_params)
+
+        process = GaborProcess()
 
         # Insert
         return {'best_gabor': best_gabor,
@@ -261,3 +266,49 @@ class Gabor:
             gabors.append(dict(gabor=gabor, params=param_values))
 
         return gabors
+
+    @staticmethod
+    def masked_responses(images, operation, mask='gaussian', bias=0, factor=1.0, device='cpu'):
+        def evaluate_image(x):
+            x = np.atleast_3d(x)
+            x = torch.tensor(x[None, ...], dtype=torch.float32, requires_grad=False, device=device)
+            y = operation(x).data.cpu().numpy()[0]
+            return y
+
+
+        original_img_activations = []
+        masked_img_activations = []
+        masked_images = []
+        for image in tqdm(images):
+            original_img_activations.append(evaluate_image(image))
+            masked_image = mask_image(image, mask, bias, factor)
+            masked_images.append(masked_image)
+            masked_img_activations.append(evaluate_image(masked_image))
+
+        return original_img_activations, masked_img_activations, masked_images
+
+
+    # TODO: nem fix am
+    @staticmethod
+    def compute_spatial_frequency(img):
+        from matplotlib import pyplot as plt
+        # Compute the 2D Fourier Transform
+        fft_img = np.fft.fft2(img)
+
+        # Shift the zero-frequency component to the center of the spectrum
+        fft_img_shifted = np.fft.fftshift(fft_img)
+
+        # Compute the magnitude spectrum (absolute value)
+        magnitude_spectrum = np.abs(fft_img_shifted)
+
+        # Compute the spatial frequencies
+        rows, cols = img.shape
+        freq_rows = np.fft.fftfreq(rows)
+        freq_cols = np.fft.fftfreq(cols)
+
+        # Display the magnitude spectrum
+        plt.imshow(np.log1p(magnitude_spectrum), cmap='gray')
+        plt.colorbar()
+        plt.show()
+
+        return freq_cols, freq_rows, magnitude_spectrum
