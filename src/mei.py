@@ -3,7 +3,7 @@ import numpy as np
 
 from .gabor import Gabor
 from .utils import contrast_tuning
-from .neuron_query import adj_model
+from .neuron_query import adj_model, NeuronQuery
 from .process import MEIProcess
 
 
@@ -12,7 +12,7 @@ class MEI(Gabor):
         super().__init__(models, shape, bias, scale, device)
 
     #TODO: implement WRONGMEI : generálásnál a mean-t használja std helyett is
-    def generate(self, neuron_query, **MEIParams):
+    def generate(self, neuron_query=None, **MEIParams):
 
         model = adj_model(self.models, neuron_query)
         process = MEIProcess(model, bias=self.bias, scale=self.scale, device=self.device, **MEIParams)
@@ -43,7 +43,7 @@ class MEI(Gabor):
         #process.lim_contrast = lim_contrast
         return process
 
-    def gradient_rf(self, neuron_query, **MEIParams):
+    def gradient_rf(self, neuron_query=None, **MEIParams):
         def init_rf_image(stimulus_shape=(1, 36, 64)):
             return torch.zeros(1, *stimulus_shape, device=self.device, requires_grad=True)
 

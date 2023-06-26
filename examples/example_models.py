@@ -9,11 +9,11 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 
-def show_mei(image):
-    plt.imshow(image.image, cmap='gray')
+def show_mei(mei):
+    plt.imshow(mei.image, cmap='gray')
     plt.axis('off')
     plt.show()
-    print("Activation: ", image.activation)
+    print("Activation: ", mei.activation)
 
 
 def show_image(image):
@@ -23,11 +23,14 @@ def show_image(image):
 
 
 class _ExampleModel(nn.Module):
-    def __init__(self, name='model', criterion=None, optimizer=None):
+    def __init__(self, name='model', device='cpu', criterion=None, optimizer=None):
         super(_ExampleModel, self).__init__()
         self.name = name
         self.criterion = criterion
         self.optimizer = optimizer
+
+        self.device = device
+        self.to(device)
 
     def train(self, epochs=10):
         for epoch in range(epochs):
@@ -75,8 +78,8 @@ class _ExampleModel(nn.Module):
 
 
 class MNIST_model(_ExampleModel):
-    def __init__(self, name='model', load=False):
-        super(MNIST_model, self).__init__(name=name)
+    def __init__(self, name='model', device='cpu', load=False):
+        super(MNIST_model, self).__init__(name=name, device=device)
         self.flatten = nn.Flatten()
         self.fc1 = nn.Linear(28 * 28, 128)
         self.relu = nn.ReLU()
@@ -112,8 +115,8 @@ class MNIST_model(_ExampleModel):
 
 
 class CIFAR_model(_ExampleModel):
-    def __init__(self, KERNEL_SIZE=(3, 3), INPUT_SHAPE=(3, 32, 32)):
-        super(CIFAR_model, self).__init__()
+    def __init__(self, name='model', device='cuda', KERNEL_SIZE=(3, 3), INPUT_SHAPE=(3, 32, 32)):
+        super(CIFAR_model, self).__init__(name=name, device=device)
 
         self.conv1 = nn.Conv2d(3, 32, KERNEL_SIZE, padding=1)
         self.bn1 = nn.BatchNorm2d(32)

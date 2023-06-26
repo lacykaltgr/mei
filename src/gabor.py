@@ -36,7 +36,7 @@ class Gabor:
         for key, value in ranges.items():
             self.ranges[key] = value
 
-    def best_gabor(self, neuron_query=NeuronQuery.ALL, gabor_loader=None):
+    def best_gabor(self, neuron_query=None, gabor_loader=None):
         """
         Find the most exciting gabor for cells in the neuron query
 
@@ -56,7 +56,7 @@ class Gabor:
         with torch.no_grad():
             for i, gabor in tqdm(enumerate(gabor_loader)):
                 # norm = gabors
-                norm = (gabor["gabor"] - self.bias) / self.scale
+                norm = (gabor["image"] - self.bias) / self.scale
                 img = torch.Tensor(norm[:, None, :, :]).to('cuda')
                 img_activations = operation(img).cpu().numpy()
                 activations.append(img_activations)
@@ -74,17 +74,21 @@ class Gabor:
             (best_phase, best_wavelength, best_orientation, best_sigma, best_dy,
              best_dx) = gabor_loader[best_idx]['params']
 
-            # Insert
-            results.append({'neuron_id': neuron_id,
-                            'best_activation': best_activation,
-                            'best_phase': best_phase,
-                            'best_wavelength': best_wavelength,
-                            'best_orientation': best_orientation,
-                            'best_sigma': best_sigma, 'best_dy': best_dy,
-                            'best_dx': best_dx})
+            results.append(GaborProcess(
+                operation=operation,
+                bias=self.bias,
+                scale=self.scale,
+                device=self.device,
+                activation=best_activation,
+                phase=best_phase,
+                wavelength=best_wavelength,
+                orientation=best_orientation,
+                sigma=best_sigma,
+                dy=best_dy,
+                dx=best_dx))
         return results
 
-    def optimal_gabor(self, neuron_query=NeuronQuery.ALL, target_mean=None, target_contrast=None):
+    def optimal_gabor(self, neuron_query=None, target_mean=None, target_contrast=None):
         """
         Find parameters that produce an optimal gabor for this unit
 
@@ -98,8 +102,6 @@ class Gabor:
         best_dy:            float       # (px/height) amount of translation in y (positive moves downwards)
         best_dx:            float       # (px/width) amount of translation in x (positive moves right)
         """
-        # Write loss function to be optimized
-
         operation = adj_model(self.models, neuron_query)
 
         def neg_model_activation(params):
@@ -112,7 +114,7 @@ class Gabor:
             # based methods did worse than direct search ones.
 
             # Create gabor
-            gabor = self.create_gabor(height=params['height'], width=params['width'],
+            gabor = self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
                                       phase=phase, wavelength=wavelength, orientation=orientation,
                                       sigma=sigma, dy=dy, dx=dx,
                                       target_mean=target_mean, target_contrast=target_contrast)
@@ -143,24 +145,24 @@ class Gabor:
         best_params = [np.clip(p, l, u) for p, (l, u) in zip(best_params, self.limits)]
 
         # Create best gabor
-        best_gabor = self.create_gabor(height=self.limits['height'], width=self.limits['width'],
+        best_gabor = self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
                                        phase=best_params[0], wavelength=best_params[1],
                                        orientation=best_params[2], sigma=best_params[3],
                                        dy=best_params[4], dx=best_params[5])
         best_activation = -neg_model_activation(best_params)
 
-        process = GaborProcess()
-
-        # Insert
-        return {'best_gabor': best_gabor,
-                'best_seed': best_seed,
-                'best_activation': best_activation,
-                'best_phase': best_params[0],
-                'best_wavelength': best_params[1],
-                'best_orientation': best_params[2],
-                'best_sigma': best_params[3],
-                'best_dy': best_params[4],
-                'best_dx': best_params[5]}
+        return GaborProcess(operation=operation,
+                            image=best_gabor,
+                            bias=self.bias,
+                            scale=self.scale,
+                            device=self.device,
+                            activation=best_activation,
+                            phase=best_params[0],
+                            wavelength=best_params[1],
+                            orientation=best_params[2],
+                            sigma=best_params[3],
+                            dy=best_params[4],
+                            dx=best_params[5])
 
     @staticmethod
     def create_gabor(
@@ -263,7 +265,7 @@ class Gabor:
         for params in param_combinations:
             param_values = dict(zip(param_ranges.keys(), params))
             gabor = Gabor.create_gabor(**param_values)
-            gabors.append(dict(gabor=gabor, params=param_values))
+            gabors.append(dict(image=gabor, params=param_values))
 
         return gabors
 

@@ -12,11 +12,11 @@ from .gabor import Gabor
 
 
 class _Process:
-    def __init__(self, operation, bias=0, scale=1, device='cpu'):
+    def __init__(self, operation, image=None, bias=0, scale=1, device='cpu'):
         self.device = device
         self.bias = bias
         self.scale = scale
-        self.image = None
+        self.image = image
         self.operation = operation
 
     def best_match(self, dataloader, mask=None, factor=1.0):
@@ -76,10 +76,13 @@ class _Process:
 
         return activations, shifted_mei
 
+    def spatial_frequency(self):
+        return Gabor.compute_spatial_frequency(self.image)
+
 
 class GaborProcess(_Process):
-    def __init__(self, operation=None, bias=0, scale=1, device='cpu', **GaborParams):
-        super().__init__(operation, bias, scale, device)
+    def __init__(self, operation=None, image= None, bias=0, scale=1, device='cpu', **GaborParams):
+        super().__init__(operation=operation, image=image, bias=bias, scale=scale, device=device)
 
         self.seed = GaborParams['seed'] if 'seed' in GaborParams else None
         self.activation = GaborParams['activation'] if 'activation' in GaborParams else None

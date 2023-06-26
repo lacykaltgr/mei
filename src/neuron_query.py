@@ -1,28 +1,46 @@
-from enum import Enum
+import numpy as np
 
 def adj_model(models, neuron_query):
+
+    # matrix x -> list
+    if neuron_query == None:
+        #all
+        query_fn = lambda x: x
+
+    elif type(neuron_query) == int:
+        #1D
+        query_fn = lambda x: [x[:, neuron_query]]
+
+    elif type(neuron_query) == list:
+        #2D+
+        query_fn = lambda x: [query(x, neuron_query)]
+
+    elif callable(neuron_query):
+        #lambda function
+        # output -> activation
+        query_fn = neuron_query
+
+    else:
+        raise ValueError("Invalid neuron query")
+
+    #ez már listát ad vissza
+    # TODO: ezt megoldani a generálásnál
     def adj_model_fn(x):
         count = 0
-        sum = None
+        sums = None
         for model in models:
-            y = NeuronQuery.query(model(x), neuron_query)
-            sum = y if count == 0 else sum + y
+            y = np.array(query_fn(model(x)))
+            sums = y if count == 0 else sums + y
             count += 1
-        return sum / count
+        return sums / count
     return adj_model_fn
 
 
-class NeuronQuery(Enum):
-    ALL = 0
-    RANDOM = 1
+def query(x, query):
+    for i in range(len(query)):
+        x = x[:, query[i]]
+    return x
 
-    def __init__(self, query):
-        self.query = query
 
-    @staticmethod
-    def query(x, query):
-        for i in range(len(query)):
-            x = x[:, query[i]]
-        return x
 
 
