@@ -4,7 +4,6 @@ from tqdm import tqdm
 from itertools import product
 
 from .utils import roll, batch_std, fft_smooth, blur_in_place, mask_image
-from .gabor import Gabor
 
 # import scipy
 # from scipy import signal, ndimage
@@ -38,9 +37,10 @@ class _Process:
 
     # TODO: paraméterek még kellenének
     def masked_responses(self, mask='gaussian', factor=1.0):
+        from .gabor import Gabor
         if self.image is None:
             return None
-        return Gabor.masked_responses([self.image], mask, self.bias, factor)
+        return Gabor.masked_responses([self.image], self.operation, mask, self.bias, factor)
 
     def jittered_responses(self, jitter_size):
         if self.image is None:
@@ -77,6 +77,7 @@ class _Process:
         return activations, shifted_mei
 
     def spatial_frequency(self):
+        from .gabor import Gabor
         return Gabor.compute_spatial_frequency(self.image)
 
 
@@ -99,7 +100,7 @@ class GaborProcess(_Process):
 # TODO: lehessen specific operationnel (paraméterben megadva) használni
 class MEIProcess(_Process):
     def __init__(self, operation, bias=0, scale=1, device='cpu', **MEIParams):
-        super().__init__(operation, bias, scale, device)
+        super().__init__(operation, bias=bias, scale=scale, device=device)
 
         # result parameters
         self.activation = None

@@ -1,38 +1,41 @@
 import numpy as np
+import torch
+
 
 def adj_model(models, neuron_query):
-
     # matrix x -> list
-    if neuron_query == None:
-        #all
-        query_fn = lambda x: x
+    if neuron_query is None:
+        # all
+        def query_fn(x):
+            return x
 
     elif type(neuron_query) == int:
-        #1D
-        query_fn = lambda x: [x[:, neuron_query]]
+        # 1D
+        def query_fn(x: torch.Tensor):
+            return x[:, neuron_query]
 
     elif type(neuron_query) == list:
-        #2D+
-        query_fn = lambda x: [query(x, neuron_query)]
+        # 2D+
+        def query_fn(x):
+            return [query(x, neuron_query)]
 
     elif callable(neuron_query):
-        #lambda function
+        # lambda function
         # output -> activation
         query_fn = neuron_query
-
     else:
         raise ValueError("Invalid neuron query")
 
-    #ez már listát ad vissza
-    # TODO: ezt megoldani a generálásnál
     def adj_model_fn(x):
+        # ez már listát ad vissza
         count = 0
         sums = None
         for model in models:
-            y = np.array(query_fn(model(x)))
-            sums = y if count == 0 else sums + y
+            y = query_fn(model(x))
+            sums = y if count == 0 else sums+y
             count += 1
         return sums / count
+
     return adj_model_fn
 
 
@@ -40,7 +43,3 @@ def query(x, query):
     for i in range(len(query)):
         x = x[:, query[i]]
     return x
-
-
-
-

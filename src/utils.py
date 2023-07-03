@@ -90,7 +90,7 @@ def mask_image(img, mask='gaussian', background=0, factor=1.0, operation=lambda 
         raise ValueError(f'Unknown mask type: {mask}')
 
     filler = np.full_like(img, background)
-    return img * mask + filler * (1 - _mask)
+    return img * _mask + filler * (1 - _mask)
 
 
 def fft_smooth(grad, factor=1/4):

@@ -14,14 +14,14 @@ dxs:            longblob    # (px/width) amount of translation in x (positive mo
 """
 gabor_ranges = \
     dict(
-            height=36,
-            width=64,
-            phases=[0, 90, 180, 270],
-            wavelengths=[4, 7, 10, 15, 20],
-            orientations=np.linspace(0, 180, 8, endpoint=False),
-            sigmas=[2, 3, 5, 7, 9],
-            dys=np.linspace(-0.3, 0.3, 7),
-            dxs=np.linspace(-0.3, 0.3, 13)
+            height=[36],
+            width=[64],
+            phase=[0, 90, 180, 270],
+            wavelength=[4, 7, 10, 15, 20],
+            orientation=np.linspace(0, 180, 8, endpoint=False),
+            sigma=[2, 3, 5, 7, 9],
+            dy=np.linspace(-0.3, 0.3, 7),
+            dx=np.linspace(-0.3, 0.3, 13)
     )
 
 
@@ -45,18 +45,12 @@ upper_dx:           float
 """
 gabor_limits = \
     dict(
-        height=36,
-        width=64,
-        lower_phase=0,
-        upper_phase=360,
-        lower_wavelenght=4,
-        upper_wavelength=20,
-        lower_orientation=0,
-        upper_orientation=180,
-        lower_sigma=2,
-        upper_sigma=9,
-        lower_dy=-0.35,
-        upper_dy=0.35,
-        lower_dx=-0.35,
-        upper_dx=0.35
+        height=(36, 36),
+        width=(64, 64),
+        phase=(0, 360),
+        wavelenght=(4, 20),
+        orientation=(0, 180),
+        sigma=(2, 9),
+        dy=(-0.35, 0.35),
+        dx=(-0.35, 0.35)
     )

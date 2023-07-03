@@ -48,7 +48,7 @@ class _ExampleModel(nn.Module):
 
                 running_loss += loss.item()
                 if i % 100 == 99:
-                    print(f"Epoch [{epoch+1}/{epochs}], Step [{i+1}/{len(self.train_loader)}], Loss: {running_loss/100:.4f}")
+                    print(f"Epoch [{epoch+1}/{epochs}], Step [{i+1}/{len(self.train_loader)}], Loss: {running_loss/100:.4f} on {self.name}")
                     running_loss = 0.0
 
     def eval(self):
@@ -73,7 +73,7 @@ class _ExampleModel(nn.Module):
 
     def load(self):
         import os
-        if os.path.isfile(f"./data/{self.name}.pth"):
+        if os.path.isfile(f"/data/{self.name}.pth"):
             self.load_state_dict(torch.load(f"./data/{self.name}.pth"))
 
 
@@ -84,6 +84,7 @@ class MNIST_model(_ExampleModel):
         self.fc1 = nn.Linear(28 * 28, 128)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(128, 10)
+        self.softmax = nn.Softmax(dim=1)
 
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.Adam(self.parameters(), lr=0.001)

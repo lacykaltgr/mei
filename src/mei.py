@@ -3,7 +3,7 @@ import numpy as np
 
 from .gabor import Gabor
 from .utils import contrast_tuning
-from .neuron_query import adj_model, NeuronQuery
+from .neuron_query import adj_model
 from .process import MEIProcess
 
 
@@ -24,7 +24,7 @@ class MEI(Gabor):
 
 
         # generate class visualization via octavewise gradient ascent
-        gen_image = MEI.deepdraw(gen_image, random_crop=False)
+        gen_image = MEI.deepdraw(process, gen_image, random_crop=False)
         mei = gen_image.squeeze()
 
         with torch.no_grad():
@@ -68,7 +68,7 @@ class MEI(Gabor):
         gen_image = np.clip(gen_image, -1, 1)
 
         # generate class visualization via octavewise gradient ascent
-        gen_image = MEI.deepdraw(gen_image, random_crop=False)
+        gen_image = MEI.deepdraw(process, gen_image, random_crop=False)
         rf = gen_image.squeeze()
 
         with torch.no_grad():
@@ -106,7 +106,7 @@ class MEI(Gabor):
         else:
             c, w, h = original_size
 
-        src = torch.zeros(1, c, w, h, requires_grad=True, device=device)
+        src = torch.zeros(1, c, w, h, requires_grad=True, device=process.device)
 
         for e, o in enumerate(process.octaves):
             if 'scale' in o:

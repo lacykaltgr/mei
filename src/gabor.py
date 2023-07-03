@@ -5,13 +5,12 @@ from scipy import optimize
 from scipy import ndimage, signal
 
 from . import configs as config
-from .neuron_query import NeuronQuery
 from .process import GaborProcess
 from .utils import adjust_img_stats, mask_image
 from .neuron_query import adj_model
 
 
-class Gabor:
+class InputOptimizerBase:
 
     def __init__(self, models, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
         self.models = models if models is not None else []
@@ -19,14 +18,65 @@ class Gabor:
         self.scale = scale
         self.device = device
         self.img_shape = shape
-        self.ranges = config.gabor_ranges
-        self.limits = config.gabor_limits
 
     def add_model(self, model):
         self.models.append(model)
 
     def remove_model(self, model):
         self.models.remove(model)
+
+    @staticmethod
+    def masked_responses(images, operation, mask='gaussian', bias=0, factor=1.0, device='cpu'):
+        def evaluate_image(x):
+            x = np.atleast_3d(x)
+            x = torch.tensor(x[None, ...], dtype=torch.float32, requires_grad=False, device=device)
+            y = operation(x).data.cpu().numpy()[0]
+            return y
+
+
+        original_img_activations = []
+        masked_img_activations = []
+        masked_images = []
+        for image in tqdm(images):
+            original_img_activations.append(evaluate_image(image))
+            masked_image = mask_image(image, mask, bias, factor)
+            masked_images.append(masked_image)
+            masked_img_activations.append(evaluate_image(masked_image))
+
+        return original_img_activations, masked_img_activations, masked_images
+
+
+    # TODO: nem fix am
+    @staticmethod
+    def compute_spatial_frequency(img):
+        from matplotlib import pyplot as plt
+        # Compute the 2D Fourier Transform
+        fft_img = np.fft.fft2(img)
+
+        # Shift the zero-frequency component to the center of the spectrum
+        fft_img_shifted = np.fft.fftshift(fft_img)
+
+        # Compute the magnitude spectrum (absolute value)
+        magnitude_spectrum = np.abs(fft_img_shifted)
+
+        # Compute the spatial frequencies
+        rows, cols = img.shape
+        freq_rows = np.fft.fftfreq(rows)
+        freq_cols = np.fft.fftfreq(cols)
+
+        # Display the magnitude spectrum
+        plt.imshow(np.log1p(magnitude_spectrum), cmap='gray')
+        plt.colorbar()
+        plt.show()
+
+        return freq_cols, freq_rows, magnitude_spectrum
+
+
+class Gabor(InputOptimizerBase):
+    def __init__(self, models, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
+        super().__init__(models, shape, bias, scale, device)
+        self.ranges = config.gabor_ranges
+        self.limits = config.gabor_limits
 
     def set_limits(self, **limits):
         for key, value in limits.items():
@@ -57,7 +107,8 @@ class Gabor:
             for i, gabor in tqdm(enumerate(gabor_loader)):
                 # norm = gabors
                 norm = (gabor["image"] - self.bias) / self.scale
-                img = torch.Tensor(norm[:, None, :, :]).to('cuda')
+                img = torch.Tensor(norm[None, :]).to(self.device)
+                print(img.shape)
                 img_activations = operation(img).cpu().numpy()
                 activations.append(img_activations)
         activations = np.concatenate(activations)  # num_gabors x num_cells
@@ -122,7 +173,7 @@ class Gabor:
             # Compute activation
             with torch.no_grad():
                 norm = (gabor - self.bias) / self.scale
-                img = torch.Tensor(norm[None, None, :, :]).to('cuda')
+                img = torch.Tensor(norm[None, None, :, :]).to(self.device)
                 activation = operation(img).item()
 
             return -activation
@@ -151,7 +202,8 @@ class Gabor:
                                        dy=best_params[4], dx=best_params[5])
         best_activation = -neg_model_activation(best_params)
 
-        return GaborProcess(operation=operation,
+        return GaborProcess(seed=best_seed,
+                            operation=operation,
                             image=best_gabor,
                             bias=self.bias,
                             scale=self.scale,
@@ -260,57 +312,11 @@ class Gabor:
         import itertools
 
         gabors = []
-
-        param_combinations = itertools.product(*param_ranges.values())
-        for params in param_combinations:
+        param_combinations = itertools.product(*list(param_ranges.values()))
+        tqdm.write(f'Creating gabors')
+        for params in tqdm(param_combinations):
             param_values = dict(zip(param_ranges.keys(), params))
             gabor = Gabor.create_gabor(**param_values)
             gabors.append(dict(image=gabor, params=param_values))
 
         return gabors
-
-    @staticmethod
-    def masked_responses(images, operation, mask='gaussian', bias=0, factor=1.0, device='cpu'):
-        def evaluate_image(x):
-            x = np.atleast_3d(x)
-            x = torch.tensor(x[None, ...], dtype=torch.float32, requires_grad=False, device=device)
-            y = operation(x).data.cpu().numpy()[0]
-            return y
-
-
-        original_img_activations = []
-        masked_img_activations = []
-        masked_images = []
-        for image in tqdm(images):
-            original_img_activations.append(evaluate_image(image))
-            masked_image = mask_image(image, mask, bias, factor)
-            masked_images.append(masked_image)
-            masked_img_activations.append(evaluate_image(masked_image))
-
-        return original_img_activations, masked_img_activations, masked_images
-
-
-    # TODO: nem fix am
-    @staticmethod
-    def compute_spatial_frequency(img):
-        from matplotlib import pyplot as plt
-        # Compute the 2D Fourier Transform
-        fft_img = np.fft.fft2(img)
-
-        # Shift the zero-frequency component to the center of the spectrum
-        fft_img_shifted = np.fft.fftshift(fft_img)
-
-        # Compute the magnitude spectrum (absolute value)
-        magnitude_spectrum = np.abs(fft_img_shifted)
-
-        # Compute the spatial frequencies
-        rows, cols = img.shape
-        freq_rows = np.fft.fftfreq(rows)
-        freq_cols = np.fft.fftfreq(cols)
-
-        # Display the magnitude spectrum
-        plt.imshow(np.log1p(magnitude_spectrum), cmap='gray')
-        plt.colorbar()
-        plt.show()
-
-        return freq_cols, freq_rows, magnitude_spectrum
