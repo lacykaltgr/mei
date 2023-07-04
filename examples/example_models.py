@@ -73,7 +73,8 @@ class _ExampleModel(nn.Module):
 
     def load(self):
         import os
-        if os.path.isfile(f"/data/{self.name}.pth"):
+        if os.path.isfile(f"./data/{self.name}.pth"):
+            print(f"Loading {self.name}...")
             self.load_state_dict(torch.load(f"./data/{self.name}.pth"))
 
 

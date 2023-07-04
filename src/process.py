@@ -35,12 +35,13 @@ class _Process:
             return None
         return mask_image(self.image, mask, self.bias, factor)
 
-    # TODO: paraméterek még kellenének
-    def masked_responses(self, mask='gaussian', factor=1.0):
-        from .gabor import Gabor
+    def masked_responses(self, mask='gaussian', **MaskParams):
+        from .gabor import InputOptimizerBase
         if self.image is None:
             return None
-        return Gabor.masked_responses([self.image], self.operation, mask, self.bias, factor)
+        original_img_activations, masked_img_activations, masked_images =  \
+            InputOptimizerBase.masked_responses([self.image], self.operation, mask, self.bias, **MaskParams)
+        return original_img_activations[0], masked_img_activations[0], masked_images[0]
 
     def jittered_responses(self, jitter_size):
         if self.image is None:
@@ -53,7 +54,7 @@ class _Process:
         jiterred_images = []
 
         with torch.no_grad():
-            img = torch.Tensor(self.image).to(self.device)
+            img = torch.Tensor(self.image[None, :, :]).to(self.device)
 
             for (iy, jitter_y), (ix, jitter_x) in product(shift, shift):
                 jitter_y, jitter_x = int(jitter_y), int(jitter_x)
@@ -63,7 +64,8 @@ class _Process:
 
         return activations, jiterred_images
 
-    def shifted_responses(self, x_shift, y_shift):
+
+    def shifted_response(self, x_shift, y_shift):
 
         if self.image is None:
             return None
@@ -71,14 +73,14 @@ class _Process:
         shifted_mei = np.roll(np.roll(self.image, x_shift, 1), y_shift, 0)
 
         with torch.no_grad():
-            img = torch.Tensor(shifted_mei[..., None]).to(self.device)
-            activations = self.operation(img).data.cpu().numpy()[0]
+            shifted_mei = torch.Tensor(shifted_mei).to(self.device).unsqueeze(0)
+            activations = self.operation(shifted_mei).data.cpu().numpy()[0]
 
-        return activations, shifted_mei
+        return activations, shifted_mei.squeeze(0)
 
     def spatial_frequency(self):
-        from .gabor import Gabor
-        return Gabor.compute_spatial_frequency(self.image)
+        from .gabor import InputOptimizerBase
+        return InputOptimizerBase.compute_spatial_frequency(self.image)
 
 
 class GaborProcess(_Process):
@@ -97,7 +99,6 @@ class GaborProcess(_Process):
 
 
 # TODO: add support for multiple octaves
-# TODO: lehessen specific operationnel (paraméterben megadva) használni
 class MEIProcess(_Process):
     def __init__(self, operation, bias=0, scale=1, device='cpu', **MEIParams):
         super().__init__(operation, bias=bias, scale=scale, device=device)

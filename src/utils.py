@@ -70,7 +70,7 @@ def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, tar
     return fm, reduction_ratio
 
 
-def mask_image(img, mask='gaussian', background=0, factor=1.0, operation=lambda x: x, device='cpu'):
+def mask_image(img, mask='gaussian', background=0, operation=lambda x: x, device='cpu', **MaskParams):
     """
     Applies the mask `mask` onto the `img`. The completely masked area is then
     replaced with the value `background`.
@@ -81,11 +81,12 @@ def mask_image(img, mask='gaussian', background=0, factor=1.0, operation=lambda 
     if mask is None:
         return img
     elif mask == 'gaussian':
+        factor = MaskParams.get('factor', 1/4)
         _mask = gaussian_mask(img, factor)
     elif mask == 'mei':
-        _mask = mei_mask(img)
+        _mask = mei_mask(img, **MaskParams)
     elif mask == 'mei_tight':
-        _mask, _ = mei_tight_mask(img, operation, device)
+        _mask, _ = mei_tight_mask(img, operation, device, **MaskParams)
     else:
         raise ValueError(f'Unknown mask type: {mask}')
 
