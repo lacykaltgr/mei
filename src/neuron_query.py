@@ -2,22 +2,26 @@ import numpy as np
 import torch
 
 
-def adj_model(models, neuron_query):
+def adj_model(models, neuron_query, input_shape=None):
 
     if models is None or len(models) == 0:
-        return ValueError("Invalid models")
+        return ValueError("Invalid models, add some")
 
     # matrix x -> list
     if neuron_query is None:
+        if input_shape is None:
+            raise ValueError("Input shape must be specified for this query")
         # all
-        dummy_input = torch.zeros_like(models[0].input_shape)
+        dummy_input = torch.zeros(*input_shape)
         dummy_output = models[0](dummy_input)
         return iterate_all_neurons(dummy_output, models)
 
     elif callable(neuron_query):
+        if input_shape is None:
+            raise ValueError("Input shape must be specified for this query")
         # lambda function
         # index -> binary
-        dummy_input = torch.zeros_like(models[0].input_shape)
+        dummy_input = torch.zeros(*input_shape)
         dummy_output = models[0](dummy_input)
         return iterate_all_neurons(dummy_output, models, condition=neuron_query)
 
@@ -50,7 +54,8 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
     def recursive_iterate(elements, indices):
         if len(indices) == len(size):
             if condition(indices):
-                operations.append(operation(models, lambda x: query(x, indices)))
+                current_indices = indices[1:].copy()
+                operations.append(operation(models, lambda x: query(x, current_indices)))
         else:
             dim_size = size[len(indices)]
             for i in range(dim_size):
@@ -64,7 +69,6 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
 
 def operation(models, query_fn):
     def adj_model(x):
-        # ez már listát ad vissza
         count = 0
         sums = None
         for model in models:

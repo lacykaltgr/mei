@@ -5,10 +5,6 @@ from itertools import product
 
 from .utils import roll, batch_std, fft_smooth, blur_in_place, mask_image
 
-# import scipy
-# from scipy import signal, ndimage
-# from scipy.ndimage import label
-
 
 class _Process:
     def __init__(self, operation, image=None, bias=0, scale=1, device='cpu'):
@@ -18,29 +14,29 @@ class _Process:
         self.image = image
         self.operation = operation
 
-    def best_match(self, dataloader, mask=None, factor=1.0):
+    def best_match(self, dataloader, mask=None, **MaskParams):
         img_activations = []
         for image, label in tqdm(dataloader.dataset):
-            image = np.atleast_3d(mask_image(image, mask, self.bias, factor))  # ensure channel dimension exist
+            image = np.atleast_3d(mask_image(image, mask, self.bias, **MaskParams))  # ensure channel dimension exist
             image = torch.tensor(image[None, ...], dtype=torch.float32, requires_grad=True, device=self.device)
             y = self.operation(image)
             img_activations.append(y.item())
 
         img_activations = np.array(img_activations)
         pos = np.argmax(img_activations)
-        return img_activations[pos], dataloader.dataset[pos]
+        return img_activations[pos], dataloader.dataset[pos][0].squeeze(0)
 
-    def masked(self, mask, factor=1.0):
+    def masked(self, mask, **MaskParams):
         if self.image is None:
             return None
-        return mask_image(self.image, mask, self.bias, factor)
+        return mask_image(self.image, mask, self.bias, **MaskParams)
 
     def masked_responses(self, mask='gaussian', **MaskParams):
-        from .gabor import InputOptimizerBase
+        from .gabor import _InputOptimizerBase
         if self.image is None:
             return None
         original_img_activations, masked_img_activations, masked_images =  \
-            InputOptimizerBase.masked_responses([self.image], self.operation, mask, self.bias, **MaskParams)
+            _InputOptimizerBase.masked_responses([self.image], self.operation, mask, self.bias, **MaskParams)
         return original_img_activations[0], masked_img_activations[0], masked_images[0]
 
     def jittered_responses(self, jitter_size):
@@ -64,7 +60,6 @@ class _Process:
 
         return activations, jiterred_images
 
-
     def shifted_response(self, x_shift, y_shift):
 
         if self.image is None:
@@ -79,8 +74,8 @@ class _Process:
         return activations, shifted_mei.squeeze(0)
 
     def spatial_frequency(self):
-        from .gabor import InputOptimizerBase
-        return InputOptimizerBase.compute_spatial_frequency(self.image)
+        from .gabor import _InputOptimizerBase
+        return _InputOptimizerBase.compute_spatial_frequency(self.image)
 
 
 class GaborProcess(_Process):

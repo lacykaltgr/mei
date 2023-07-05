@@ -9,17 +9,38 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 
-def show_mei(mei):
-    plt.imshow(mei.image, cmap='gray')
-    plt.axis('off')
-    plt.show()
-    print("Activation: ", mei.activation)
+def show_image(image, text=None, activation=None):
+    if text is not None:
+        plt.suptitle(text, fontsize=12)
+    if activation is not None:
+        plt.title('Activation: {:.2f}'.format(activation), fontsize=8)
 
-
-def show_image(image):
     plt.imshow(image, cmap='gray')
     plt.axis('off')
     plt.show()
+
+def show_image_grid(images, texts=None, activations=None, grid_size=(4, 4), image_size=(4, 4), spacing=0.1):
+    num_images = len(images)
+    num_rows, num_cols = grid_size
+
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(num_cols * image_size[0], num_rows * image_size[1]))
+
+    for i, (image, text, activation) in enumerate(zip(images, texts, activations)):
+        ax = axes[i // num_cols, i % num_cols]
+        if text is not None:
+            ax.set_title(text, fontsize=12)
+        if activation is not None:
+            ax.set_xlabel('Activation: {:.2f}'.format(activation), fontsize=8)
+        ax.imshow(image, cmap='gray')
+        ax.axis('off')
+
+    for i in range(num_images, num_rows * num_cols):
+        fig.delaxes(axes[i // num_cols, i % num_cols])
+
+    plt.subplots_adjust(wspace=spacing, hspace=spacing)
+    plt.show()
+
+
 
 
 class _ExampleModel(nn.Module):
@@ -65,7 +86,7 @@ class _ExampleModel(nn.Module):
                 correct += (predicted == labels).sum().item()
 
         accuracy = 100 * correct / total
-        print(f"Test Accuracy: {accuracy:.2f}%")
+        print(f"Test Accuracy on {self.name}: {accuracy:.2f}%")
 
 
     def save(self):

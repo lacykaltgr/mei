@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import scipy
 
 from .gabor import Gabor
 from .utils import contrast_tuning
@@ -30,16 +31,16 @@ class MEI(Gabor):
                 img = torch.Tensor(gen_image[None, ...]).to(self.device)
                 activation = process.operation(img).data.cpu().numpy()[0]
 
-            cont, vals, lim_contrast = contrast_tuning(op, mei, device=self.device)
+            #cont, vals, lim_contrast = contrast_tuning(op, mei, device=self.device)
 
             process.image = mei
             process.activation = activation
-            process.monotonic = bool(np.all(np.diff(vals) >= 0))
-            process.max_activation = np.max(vals)
-            process.max_contrast = cont[np.argmax(vals)]
-            process.sat_contrast = np.max(cont)
-            process.img_mean = mei.mean()
-            process.lim_contrast = lim_contrast
+            #process.monotonic = bool(np.all(np.diff(vals) >= 0))
+            #process.max_activation = np.max(vals)
+            #process.max_contrast = cont[np.argmax(vals)]
+            #process.sat_contrast = np.max(cont)
+            #process.img_mean = mei.mean()
+            #process.lim_contrast = lim_contrast
             processes.append(process)
 
         return processes if len(processes) > 1 else processes[0]
@@ -78,13 +79,13 @@ class MEI(Gabor):
                 img = torch.Tensor(gen_image[None, ...]).to(self.device)
                 activation = init_process.operation(img).data.cpu().numpy()[0]
 
-            #cont, vals, lim_contrast = contrast_tuning(adj_model, rf, self.bias, self.scale)
+            cont, vals, lim_contrast = contrast_tuning(op, rf, self.bias, self.scale)
 
             process.image = rf
-            #process.monotonic = bool(np.all(np.diff(vals) >= 0))
-            #process.max_activation = np.max(vals)
-            #process.max_contrast = cont[np.argmax(vals)]
-            #process.sat_contrast = np.max(cont)
+            process.monotonic = bool(np.all(np.diff(vals) >= 0))
+            process.max_activation = np.max(vals)
+            process.max_contrast = cont[np.argmax(vals)]
+            process.sat_contrast = np.max(cont)
             process.point_rf = point_rf
             process.activation = activation
 
@@ -96,6 +97,7 @@ class MEI(Gabor):
         """ Generate an image by iteratively optimizing activity of net.
 
         Arguments:
+            process (MEIProcess): Process object with operation and other parameters.
             image (np.array): Initial image (h x w x c)
             random_crop (boolean): If image to optimize is bigger than networks input image,
                 optimize random crops of the image each iteration.
@@ -115,9 +117,8 @@ class MEI(Gabor):
 
         for e, o in enumerate(process.octaves):
             if 'scale' in o:
-                pass  # TODO
                 # resize by o['scale'] if it exists
-                # image = scipy.ndimage.zoom(image, (1, o['scale'], o['scale']))
+                image = scipy.ndimage.zoom(image, (1, o['scale'], o['scale']))
             _, imw, imh = image.shape
             for i in range(o['iter_n']):
                 if imw > w:
@@ -187,9 +188,8 @@ class MEI(Gabor):
 
         for e, o in enumerate(process.octaves):
             if 'scale' in o:
-                pass  # TODO
                 # resize by o['scale'] if it exists
-                # image = ndimage.zoom(image, (1, 1, o['scale'], o['scale']))
+                image = scipy.ndimage.zoom(image, (1, 1, o['scale'], o['scale']))
             imw, imh = image.shape[-2:]
             for i in range(o['iter_n']):
                 if imw > w:

@@ -4,8 +4,9 @@ from numpy.linalg import inv, cholesky
 import warnings
 from tqdm import tqdm
 from skimage.morphology import convex_hull_image, erosion, square
+import scipy
 from scipy.ndimage.filters import gaussian_filter
-#from scipy import ndimage
+from scipy.ndimage import label
 
 
 def gaussian_mask(img, factor):
@@ -24,7 +25,7 @@ def gaussian_mask_with_info(img, factor):
     return mei_mask, mu_x, mu_y, cov_x, cov_y, cov_xy
 
 
-def mei_mask(img, delta_thr=16, size_thr=50, expansion_sigma=3, expansion_thr=0.3, filter_sigma=2):
+def mei_mask(img, delta_thr=0.5, size_thr=50, expansion_sigma=3, expansion_thr=0.3, filter_sigma=2):
     delta = img - img.mean()
     mask = np.abs(delta) > delta_thr
     # remove small lobes - likely an artifact
@@ -40,7 +41,7 @@ def mei_mask(img, delta_thr=16, size_thr=50, expansion_sigma=3, expansion_thr=0.
 def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, target_reduction_ratio=0.9):
     def get_activation(mei):
         with torch.no_grad():
-            img = torch.Tensor(mei[..., None]).to(device)
+            img = torch.Tensor(mei[None, None, :, :]).to(device)
             activation = operation(img).data.cpu().numpy()[0]
         return activation
 
@@ -120,8 +121,7 @@ def fft_smooth(grad, factor=1/4):
 def blur(img, sigma):
     if sigma > 0:
         for d in range(len(img)):
-            pass
-            #img[d] = ndimage.filters.gaussian_filter(img[d], sigma, order=0)
+            img[d] = scipy.ndimage.filters.gaussian_filter(img[d], sigma, order=0)
     return img
 
 
@@ -205,7 +205,7 @@ def remove_small_area(mask, size_threshold=50):
     Removes contiguous areas in a thresholded image that is smaller in the number of pixels than size_threshold.
     """
     mask_mod = mask.copy()
-    label_im, nb_labels = None#label(mask_mod)
+    label_im, nb_labels = label(mask_mod)
     for v in range(0, nb_labels+1):
         area = label_im == v
         s = np.sum(area)

@@ -10,7 +10,7 @@ from .utils import adjust_img_stats, mask_image
 from .neuron_query import adj_model
 
 
-class InputOptimizerBase:
+class _InputOptimizerBase:
 
     def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
         self.models = models if models is not None else []
@@ -30,7 +30,7 @@ class InputOptimizerBase:
         if self.operation is not None:
             return [self.operation]
         elif len(self.models) > 0:
-            return adj_model(self.models, neuron_query)
+            return adj_model(self.models, neuron_query, input_shape=self.img_shape)
         else:
             raise ValueError("No valid operation")
 
@@ -38,7 +38,7 @@ class InputOptimizerBase:
     def masked_responses(images, operation, mask='gaussian', bias=0, device='cpu', **MaskParams):
         def evaluate_image(x):
             x = np.atleast_3d(x)
-            x = torch.tensor(x[None, ...], dtype=torch.float32, requires_grad=False, device=device)
+            x = torch.tensor(x[None, None, :], dtype=torch.float32, requires_grad=False, device=device)
             y = operation(x).data.cpu().numpy()[0]
             return y
 
@@ -47,13 +47,12 @@ class InputOptimizerBase:
         masked_images = []
         for image in tqdm(images):
             original_img_activations.append(evaluate_image(image))
-            masked_image = mask_image(image, mask, bias, **MaskParams)
+            masked_image = mask_image(image, mask, bias, operation=operation, **MaskParams)
             masked_images.append(masked_image)
             masked_img_activations.append(evaluate_image(masked_image))
 
         return original_img_activations, masked_img_activations, masked_images
 
-    # TODO: nem fix am
     @staticmethod
     def compute_spatial_frequency(img):
         from matplotlib import pyplot as plt
@@ -79,7 +78,7 @@ class InputOptimizerBase:
         return freq_cols, freq_rows, magnitude_spectrum
 
 
-class Gabor(InputOptimizerBase):
+class Gabor(_InputOptimizerBase):
     def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
         super().__init__(models, operation, shape, bias, scale, device)
         self.ranges: dict = config.gabor_ranges
@@ -109,15 +108,13 @@ class Gabor(InputOptimizerBase):
 
         :param neuron_query:
         :param gabor_loader:
-        :return:
+        :return: best gabor for each cell
         """
-        # TODO: mean/contrast_params
 
         if gabor_loader is None:
             gabor_loader = self.create_gabor_loader(self.ranges)
 
-        #TODO  no [0]
-        operation = self.get_operations(neuron_query)[0]
+        operations = self.get_operations(neuron_query)
 
         # Evaluate all gabors
         activations = []
@@ -127,15 +124,13 @@ class Gabor(InputOptimizerBase):
                 # norm = gabors
                 norm = (gabor["image"] - self.bias) / self.scale
                 img = torch.Tensor(norm[None, :, :]).to(self.device)
-                img_activations = operation(img).cpu().numpy()
+                img_activations = []
+                for op in operations:
+                    img_activations.append(op(img).cpu().numpy())
+                if len(img_activations) == 1:
+                    img_activations = img_activations[0]
                 activations.append(img_activations)
         activations = np.concatenate(activations)  # num_gabors x num_cells
-
-
-        # Check we got all gabors and all cells
-        if len(activations) != len(gabor_loader):
-            raise ValueError('Some gabor patches did not get processed')
-
         processes = []
 
         if activations.ndim == 1:
@@ -144,7 +139,7 @@ class Gabor(InputOptimizerBase):
              best_dx) = gabor_loader[best_idx]['params'].values()
             return GaborProcess(
                 image=gabor_loader[best_idx]['image'],
-                operation=operation,
+                operation=operations[0],
                 bias=self.bias,
                 scale=self.scale,
                 device=self.device,
@@ -165,7 +160,7 @@ class Gabor(InputOptimizerBase):
 
             processes.append(GaborProcess(
                 image=gabor_loader[best_idx]['image'],
-                operation=operation,
+                operation=operations[neuron_id],
                 bias=self.bias,
                 scale=self.scale,
                 device=self.device,
@@ -220,7 +215,7 @@ class Gabor(InputOptimizerBase):
 
                 return -activation
 
-            # Find best parameters (simulated annealing -> local search)
+            # Find the best parameters (simulated annealing -> local search)
             best_params = None
             best_activation = np.inf
             best_seed = None
@@ -288,6 +283,10 @@ class Gabor(InputOptimizerBase):
             sigma (float): Sigma of the gaussian mask used in pixels
             dy (float): Amount of translation in y (positive moves down) in pixels/height.
             dx (float): Amount of translation in x (positive moves right) in pixels/height.
+            target_mean (float): Target mean of the image. If None, no normalization is applied.
+            target_contrast (float): Target contrast of the image. If None, no normalization is applied.
+            img_min (float): Minimum value of the image.
+            img_max (float): Maximum value of the image.
     
         Returns:
             Array of height x width shape with the required gabor.
@@ -335,21 +334,10 @@ class Gabor(InputOptimizerBase):
         elif target_mean is not None or target_contrast is not None:
             raise ValueError('If you want to adjust the mean or contrast, you must specify both.')
 
-        # if lum is not None:
-        # upscale the image
-        # lum_gabor = ndimage.zoom(gabor, zoom=zoom_factor, mode='reflect')
-        # key['gabor_mu'] = lum_gabor.mean()
-        # key['gabor_contrast'] = lum_gabor.std()
-
-        # invert gamma transformation into image space
-        # gabor = np.clip(f_inv(lum_gabor), 0, 255)
-
-        # small_gabor = cv2.resize(gabor, original_shape, interpolation=cv2.INTER_AREA).astype(np.float32)
-
         return gabor.astype(np.float32)
 
     @staticmethod
-    def create_gabor_loader(param_ranges, load_path=None, save_path=None, batch_size=128):
+    def create_gabor_loader(param_ranges, load_path=None, save_path=None):
         """
         Grid search over gabor parameters then return a loader with these
         :return: data loader with gabor patches
