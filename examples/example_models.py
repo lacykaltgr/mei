@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision.datasets import MNIST
+from torchvision.datasets import MNIST, CIFAR10
 from torchvision.transforms import ToTensor, Compose
 import torchvision.transforms as transforms
 import torch.nn.functional as F
@@ -138,7 +138,7 @@ class MNIST_model(_ExampleModel):
 
 
 class CIFAR_model(_ExampleModel):
-    def __init__(self, name='model', device='cuda', KERNEL_SIZE=(3, 3), INPUT_SHAPE=(3, 32, 32)):
+    def __init__(self, name='model', device='cuda', load=False, KERNEL_SIZE=(3, 3)):
         super(CIFAR_model, self).__init__(name=name, device=device)
 
         self.conv1 = nn.Conv2d(3, 32, KERNEL_SIZE, padding=1)
@@ -173,6 +173,26 @@ class CIFAR_model(_ExampleModel):
         self.fc1 = nn.Linear(8 * 6 * 6, 128)
         self.dropout4 = nn.Dropout(0.25)
         self.fc2 = nn.Linear(128, 10)
+
+        self.criterion = nn.CrossEntropyLoss()
+        self.optimizer = optim.Adam(self.parameters(), lr=0.001)
+
+        transformer = Compose([
+            ToTensor(),
+            transforms.Normalize((0,), (1,))
+        ])
+
+        # Load MNIST dataset
+        train_dataset = CIFAR10(root='./data', train=True, download=True, transform=transformer)
+        test_dataset = CIFAR10(root='./data', train=False, download=True, transform=transformer)
+
+        # Create data loaders
+        batch_size = 128
+        self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        self.test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+        if load:
+            self.load()
 
     def forward(self, x):
         x = self.conv1(x)

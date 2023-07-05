@@ -1,6 +1,13 @@
 import numpy as np
 import torch
 
+def dummy_output(model, input_shape):
+    if input_shape[0] != 1:
+        input_shape = (1, *input_shape)
+    dummy_input = torch.zeros(*input_shape)
+    dummy_output = model(dummy_input)
+    return dummy_output
+
 
 def adj_model(models, neuron_query, input_shape=None):
 
@@ -12,18 +19,16 @@ def adj_model(models, neuron_query, input_shape=None):
         if input_shape is None:
             raise ValueError("Input shape must be specified for this query")
         # all
-        dummy_input = torch.zeros(*input_shape)
-        dummy_output = models[0](dummy_input)
-        return iterate_all_neurons(dummy_output, models)
+        dummy = dummy_output(models[0], input_shape)
+        return iterate_all_neurons(dummy, models)
 
     elif callable(neuron_query):
         if input_shape is None:
             raise ValueError("Input shape must be specified for this query")
         # lambda function
         # index -> binary
-        dummy_input = torch.zeros(*input_shape)
-        dummy_output = models[0](dummy_input)
-        return iterate_all_neurons(dummy_output, models, condition=neuron_query)
+        dummy = dummy_output(models[0], input_shape)
+        return iterate_all_neurons(dummy, models, condition=neuron_query)
 
     elif type(neuron_query) == int:
         # 1D
@@ -45,6 +50,7 @@ def query(x, query):
     for i in range(len(query)):
         x = x[:, query[i]]
     return x
+
 
 
 def iterate_all_neurons(tensor, models, condition=lambda x: True):

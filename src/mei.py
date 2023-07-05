@@ -19,7 +19,7 @@ class MEI(Gabor):
             process = MEIProcess(op, bias=self.bias, scale=self.scale, device=self.device, **MEIParams)
 
             # generate initial random image
-            background_color = np.float32([self.bias] * min(self.img_shape))
+            background_color = np.float32([self.bias] * self.img_shape[-1])
             gen_image = np.random.normal(background_color, self.scale / 20, self.img_shape)
             gen_image = np.clip(gen_image, -1, 1)
 
@@ -67,7 +67,7 @@ class MEI(Gabor):
 
 
             # generate initial random image
-            background_color = np.float32([self.bias] * min(self.img_shape))
+            background_color = np.float32([self.bias] * self.img_shape[-1])
             gen_image = np.random.normal(background_color, self.scale / 20, self.img_shape)
             gen_image = np.clip(gen_image, -1, 1)
 
