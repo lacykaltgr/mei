@@ -28,7 +28,7 @@ class MEI(Gabor):
             mei = gen_image.squeeze()
 
             with torch.no_grad():
-                img = torch.Tensor(gen_image[None, ...]).to(self.device)
+                img = torch.Tensor(gen_image).to(self.device)
                 activation = process.operation(img).data.cpu().numpy()[0]
 
             #cont, vals, lim_contrast = contrast_tuning(op, mei, device=self.device)
@@ -54,7 +54,7 @@ class MEI(Gabor):
 
             init_process = MEIProcess(op, bias=self.bias, scale=self.scale, device=self.device, **MEIParams)
 
-            X = init_rf_image(self.img_shape[1:])
+            X = init_rf_image(self.img_shape)
             y = init_process.operation(X)
             y.backward()
             point_rf = X.grad.data.cpu().numpy().squeeze()
@@ -76,7 +76,7 @@ class MEI(Gabor):
             rf = gen_image.squeeze()
 
             with torch.no_grad():
-                img = torch.Tensor(gen_image[None, ...]).to(self.device)
+                img = torch.Tensor(gen_image).to(self.device)
                 activation = init_process.operation(img).data.cpu().numpy()[0]
 
             cont, vals, lim_contrast = contrast_tuning(op, rf, self.bias, self.scale)

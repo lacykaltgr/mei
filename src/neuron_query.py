@@ -1,13 +1,6 @@
 import numpy as np
 import torch
 
-def dummy_output(model, input_shape):
-    if input_shape[0] != 1:
-        input_shape = (1, *input_shape)
-    dummy_input = torch.zeros(*input_shape)
-    dummy_output = model(dummy_input)
-    return dummy_output
-
 
 def adj_model(models, neuron_query, input_shape=None):
 
@@ -75,6 +68,8 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
 
 def operation(models, query_fn):
     def adj_model(x):
+        if x.shape[0] != 1:
+            x = x.unsqueeze(0)
         count = 0
         sums = None
         for model in models:
@@ -83,3 +78,11 @@ def operation(models, query_fn):
             count += 1
         return sums / count
     return adj_model
+
+
+def dummy_output(model, input_shape):
+    if input_shape[0] != 1:
+        input_shape = (1, *input_shape)
+    dummy_input = torch.zeros(*input_shape)
+    dummy_output = model(dummy_input)
+    return dummy_output

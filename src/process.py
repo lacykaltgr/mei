@@ -18,7 +18,7 @@ class _Process:
         img_activations = []
         for image, label in tqdm(dataloader.dataset):
             image = np.atleast_3d(mask_image(image, mask, self.bias, **MaskParams))  # ensure channel dimension exist
-            image = torch.tensor(image[None, ...], dtype=torch.float32, requires_grad=True, device=self.device)
+            image = torch.tensor(image, dtype=torch.float32, requires_grad=True, device=self.device)
             y = self.operation(image)
             img_activations.append(y.item())
 
@@ -50,7 +50,7 @@ class _Process:
         jiterred_images = []
 
         with torch.no_grad():
-            img = torch.Tensor(self.image[None, :, :]).to(self.device)
+            img = torch.Tensor(self.image).to(self.device)
 
             for (iy, jitter_y), (ix, jitter_x) in product(shift, shift):
                 jitter_y, jitter_x = int(jitter_y), int(jitter_x)
@@ -78,6 +78,7 @@ class _Process:
         return _InputOptimizerBase.compute_spatial_frequency(self.image)
 
 
+
 class GaborProcess(_Process):
     def __init__(self, operation=None, image= None, bias=0, scale=1, device='cpu', **GaborParams):
         super().__init__(operation=operation, image=image, bias=bias, scale=scale, device=device)
@@ -90,6 +91,15 @@ class GaborProcess(_Process):
         self.sigma = GaborParams['sigma'] if 'sigma' in GaborParams else None
         self.dy = GaborParams['dy'] if 'dy' in GaborParams else None
         self.dx = GaborParams['dx'] if 'dx' in GaborParams else None
+
+    def show_results(self):
+        print('Activation: ', self.activation)
+        print('Phase: ', self.phase)
+        print('Wavelength: ', self.wavelength)
+        print('Orientation: ', self.orientation)
+        print('Sigma: ', self.sigma)
+        print('Dy: ', self.dy)
+        print('Dx: ', self.dx)
 
 
 
@@ -132,6 +142,15 @@ class MEIProcess(_Process):
             },
         ]
 
+    def show_results(self):
+        print('Activation: ', self.activation)
+        print('Monotonic: ', self.monotonic)
+        print('Max contrast: ', self.max_contrast)
+        print('Max activation: ', self.max_activation)
+        print('Saturation contrast: ', self.sat_contrast)
+        print('Image mean: ', self.img_mean)
+        print('Limited contrast: ', self.lim_contrast)
+        print('Point rf: ', self.point_rf)
 
 
     def make_step(self, src, step_size=1.5, sigma=None, eps=1e-12, add_loss=0):

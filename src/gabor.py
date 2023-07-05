@@ -38,7 +38,7 @@ class _InputOptimizerBase:
     def masked_responses(images, operation, mask='gaussian', bias=0, device='cpu', **MaskParams):
         def evaluate_image(x):
             x = np.atleast_3d(x)
-            x = torch.tensor(x[None, None, :], dtype=torch.float32, requires_grad=False, device=device)
+            x = torch.tensor(x, dtype=torch.float32, requires_grad=False, device=device)
             y = operation(x).data.cpu().numpy()[0]
             return y
 
@@ -66,14 +66,18 @@ class _InputOptimizerBase:
         magnitude_spectrum = np.abs(fft_img_shifted)
 
         # Compute the spatial frequencies
-        rows, cols = img.shape
+        if len(img.shape) == 2:
+            rows, cols = img.shape
+            channels = 1
+        else:
+            channels, rows, cols = img.shape
         freq_rows = np.fft.fftfreq(rows)
         freq_cols = np.fft.fftfreq(cols)
 
-        # Display the magnitude spectrum
-        plt.imshow(np.log1p(magnitude_spectrum), cmap='gray')
-        plt.colorbar()
-        plt.show()
+        for channel in range(channels):
+            plt.imshow(np.log1p(magnitude_spectrum[:, :, channel]), cmap='gray')
+            plt.colorbar()
+            plt.show()
 
         return freq_cols, freq_rows, magnitude_spectrum
 
@@ -110,6 +114,8 @@ class Gabor(_InputOptimizerBase):
         :param gabor_loader:
         :return: best gabor for each cell
         """
+        if self.img_shape[0] != 1:
+            raise ValueError("Only grayscale images are supported for this feature, try using optimal gabor")
 
         if gabor_loader is None:
             gabor_loader = self.create_gabor_loader(self.ranges)
@@ -121,9 +127,8 @@ class Gabor(_InputOptimizerBase):
         with torch.no_grad():
             print('Evaluating gabors')
             for i, gabor in tqdm(enumerate(gabor_loader)):
-                # norm = gabors
                 norm = (gabor["image"] - self.bias) / self.scale
-                img = torch.Tensor(norm[None, :, :]).to(self.device)
+                img = torch.Tensor(norm).to(self.device)
                 img_activations = []
                 for op in operations:
                     img_activations.append(op(img).cpu().numpy())
@@ -190,27 +195,25 @@ class Gabor(_InputOptimizerBase):
         operations = self.get_operations(neuron_query)
         processes = []
 
+        bounds = self.limits * self.img_shape[0] if self.img_shape[0] > 1 else self.limits
+
         for op in operations:
 
             def neg_model_activation(params):
-                # Get params
-                params = [np.clip(p, l, u) for p, (l, u) in zip(params, self.limits)]  # *
-                phase, wavelength, orientation, sigma, dy, dx = params
-                # * some local optimization methods in scipy.optimize receive parameter bounds
-                # as arguments, however, empirically they seem to have lower performance than
-                # those that do not (like Nelder-Mead which I use below). In general, gradient
-                # based methods did worse than direct search ones.
-
-                # Create gabor
-                gabor = self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
-                                          phase=phase, wavelength=wavelength, orientation=orientation,
-                                          sigma=sigma, dy=dy, dx=dx,
-                                          target_mean=target_mean, target_contrast=target_contrast)
+                params = [np.clip(p, l, u) for p, (l, u) in zip(params, bounds)]
+                gabor = [self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
+                                           phase=params[6 * channel], wavelength=params[6 * channel + 1],
+                                           orientation=params[6 * channel + 2],
+                                           sigma=params[6 * channel + 3],
+                                           dy=params[6 * channel + 4], dx=params[6 * channel + 5],
+                                           target_mean=target_mean, target_contrast=target_contrast)
+                         for channel in range(self.img_shape[0])]
+                gabor = np.stack(gabor, axis=0)
 
                 # Compute activation
                 with torch.no_grad():
                     norm = (gabor - self.bias) / self.scale
-                    img = torch.Tensor(norm[None, None, :, :]).to(self.device)
+                    img = torch.Tensor(norm).to(self.device)
                     activation = op(img).item()
 
                 return -activation
@@ -219,8 +222,9 @@ class Gabor(_InputOptimizerBase):
             best_params = None
             best_activation = np.inf
             best_seed = None
+
             for seed in tqdm([1, 12, 123, 1234, 12345]):  # try 5 diff random seeds
-                res = optimize.dual_annealing(neg_model_activation, bounds=self.limits, no_local_search=True,
+                res = optimize.dual_annealing(neg_model_activation, bounds=bounds, no_local_search=True,
                                               maxiter=300, seed=seed)
                 res = optimize.minimize(neg_model_activation, x0=res.x, method='Nelder-Mead')
 
@@ -231,28 +235,29 @@ class Gabor(_InputOptimizerBase):
             if best_params is None:
                 raise ValueError('No solution found')
 
-            best_params = [np.clip(p, l, u) for p, (l, u) in zip(best_params, self.limits)]
+            best_params = [np.clip(p, l, u) for p, (l, u) in zip(best_params, bounds)]
 
             # Create best gabor
-            best_gabor = self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
-                                           phase=best_params[0], wavelength=best_params[1],
-                                           orientation=best_params[2], sigma=best_params[3],
-                                           dy=best_params[4], dx=best_params[5])
+            best_gabor = [self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
+                                            phase=best_params[6 * i], wavelength=best_params[6 * i + 1],
+                                            orientation=best_params[6 * i + 2], sigma=best_params[6 * i + 3],
+                                            dy=best_params[6 * i + 4], dx=best_params[6 * i + 5])
+                          for i in range(self.img_shape[0])]
             best_activation = -neg_model_activation(best_params)
 
-            processes.append(GaborProcess(seed=best_seed,
-                                          operation=op,
-                                          image=best_gabor,
-                                          bias=self.bias,
-                                          scale=self.scale,
-                                          device=self.device,
-                                          activation=best_activation,
-                                          phase=best_params[0],
-                                          wavelength=best_params[1],
-                                          orientation=best_params[2],
-                                          sigma=best_params[3],
-                                          dy=best_params[4],
-                                          dx=best_params[5]))
+            processes.append([GaborProcess(seed=best_seed,
+                                           operation=op,
+                                           image=best_gabor,
+                                           bias=self.bias,
+                                           scale=self.scale,
+                                           device=self.device,
+                                           activation=best_activation,
+                                           phase=[best_params[i] for i in range(self.img_shape[0])],
+                                           wavelength=[best_params[i + 1] for i in range(self.img_shape[0])],
+                                           orientation=[best_params[i + 2] for i in range(self.img_shape[0])],
+                                           sigma=[best_params[i + 3] for i in range(self.img_shape[0])],
+                                           dy=[best_params[i + 4] for i in range(self.img_shape[0])],
+                                           dx=[best_params[i + 5] for i in range(self.img_shape[0])])])
 
         return processes if len(processes) > 1 else processes[0]
 

@@ -3,7 +3,7 @@ import numpy as np
 from numpy.linalg import inv, cholesky
 import warnings
 from tqdm import tqdm
-from skimage.morphology import convex_hull_image, erosion, square
+from skimage.morphology import convex_hull_image, erosion, square, cube
 import scipy
 from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage import label
@@ -41,7 +41,7 @@ def mei_mask(img, delta_thr=0.5, size_thr=50, expansion_sigma=3, expansion_thr=0
 def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, target_reduction_ratio=0.9):
     def get_activation(mei):
         with torch.no_grad():
-            img = torch.Tensor(mei[None, None, :, :]).to(device)
+            img = torch.Tensor(mei).to(device)
             activation = operation(img).data.cpu().numpy()[0]
         return activation
 
@@ -57,7 +57,9 @@ def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, tar
 
     count = 0
     while (activation > base_line * target_reduction_ratio):
-        mask = erosion(mask, square(3))
+        #TODO EZ SE OKÉS
+        selem = square(3) if img.shape[0] == 1 else cube(3)
+        mask = erosion(mask, selem)
         fm = gaussian_filter(mask.astype(float), sigma=filter_sigma)
         masked_img = fm * img + (1 - fm) * img.mean()
         activation = get_activation(masked_img)
@@ -183,6 +185,9 @@ def fit_gauss_envelope(img):
     Returns:
 
     """
+    #TODO NEM OKÉS ITT ALATTAM
+    if len(img.shape) == 3:
+        img = img.mean(axis=0)
     vx, vy = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
     rect = (img - img.mean()) ** 2
     pdf = rect / rect.sum()
@@ -198,6 +203,7 @@ def fit_gauss_envelope(img):
     g = gauss2d(vx, vy, (mu_x, mu_y), cov)
     mu = (mu_x, mu_y)
     return mu, cov, np.sqrt(g.reshape(img.shape))
+
 
 
 def remove_small_area(mask, size_threshold=50):
@@ -234,7 +240,7 @@ def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_
 
     def run(x):
         with torch.no_grad():
-            img = torch.Tensor(x[None, ...]).to(device)
+            img = torch.Tensor(x).to(device)
             result = model(img)
         return result
 
