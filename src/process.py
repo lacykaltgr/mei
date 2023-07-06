@@ -15,6 +15,14 @@ class _Process:
         self.operation = operation
 
     def best_match(self, dataloader, mask=None, **MaskParams):
+        """
+        Find the image that maximizes the activation of the operation
+
+        :param dataloader: The dataset containing the images
+        :param mask: The mask to be applied to the image (optional)
+        :param MaskParams: The parameters of the specific mask
+        :return: The activation and the image that maximizes the activation
+        """
         img_activations = []
         for image, label in tqdm(dataloader.dataset):
             image = np.atleast_3d(mask_image(image, mask, self.bias, **MaskParams))  # ensure channel dimension exist
@@ -27,19 +35,40 @@ class _Process:
         return img_activations[pos], dataloader.dataset[pos][0].squeeze(0)
 
     def masked(self, mask, **MaskParams):
+        """
+        Apply a mask to the image
+
+        :param mask: The mask to be applied (gaussian, mei, tight_mei)
+        :param MaskParams: The parameters for the specific mask
+        :return: The masked image
+        """
         if self.image is None:
             return None
         return mask_image(self.image, mask, self.bias, **MaskParams)
 
     def masked_responses(self, mask='gaussian', **MaskParams):
+        """
+        Apply a mask to the image and return the activation of the operation
+
+        :param mask: The mask to be applied (gaussian, mei, tight_mei)
+        :param MaskParams: The parameters for the specific mask
+        :return: The activation and the masked image
+        """
         from .gabor import _InputOptimizerBase
         if self.image is None:
             return None
-        original_img_activations, masked_img_activations, masked_images =  \
+        _, masked_img_activations, masked_images =  \
             _InputOptimizerBase.masked_responses([self.image], self.operation, mask, self.bias, **MaskParams)
-        return original_img_activations[0], masked_img_activations[0], masked_images[0]
+        return masked_img_activations[0], masked_images[0]
 
     def jittered_responses(self, jitter_size):
+        """
+        Jitter the image and return the activation of the operation
+
+        :param jitter_size: The size of the jitter,
+                            the image will be shifted by -jitter_size, ..., 0, ..., jitter_size
+        :return: The activation and the jittered images
+        """
         if self.image is None:
             return None
 
@@ -61,6 +90,13 @@ class _Process:
         return activations, jiterred_images
 
     def shifted_response(self, x_shift, y_shift):
+        """
+        Shift the image and return the activation of the operation
+
+        :param x_shift: Shift on the x-axis
+        :param y_shift: Shift on the y-axis
+        :return: The activation and the shifted image
+        """
 
         if self.image is None:
             return None
@@ -74,9 +110,12 @@ class _Process:
         return activations, shifted_mei.squeeze(0)
 
     def spatial_frequency(self):
+        """
+        Compute the spatial frequency of the image and plot it
+        :return: frequency of each column, row in arrays, magnitude spectrum
+        """
         from .gabor import _InputOptimizerBase
         return _InputOptimizerBase.compute_spatial_frequency(self.image)
-
 
 
 class GaborProcess(_Process):
@@ -100,7 +139,6 @@ class GaborProcess(_Process):
         print('Sigma: ', self.sigma)
         print('Dy: ', self.dy)
         print('Dx: ', self.dx)
-
 
 
 # TODO: add support for multiple octaves
@@ -156,27 +194,14 @@ class MEIProcess(_Process):
         """
         Update src in place making a gradient ascent step in the output of net.
 
-        Arguments:
-            net (nn.Module or function): A backpropagatable function/module that receives
-                images in (B x C x H x W) form and outputs a scalar value per image.
-            src (torch.Tensor): Batch of images to update (B x C x H x W).
-            step_size (float): Step size to use for the update: (im_old += step_size * grad)
-            sigma (float): Standard deviation for gaussian smoothing (if used, see blur).
-            precond (float): Strength of gradient smoothing.
-            step_gain (float): Scaling factor for the step size.
-            blur (boolean): Whether to blur the image after the update.
-            jitter (int): Randomly shift the image this number of pixels before forwarding
-                it through the network.
-            eps (float): Small value to avoid division by zero.
-            clip (boolean): Whether to clip the range of the image to be in [0, 255]
-            train_norm (float): Decrease standard deviation of the image feed to the
-                network to match this norm. Expressed in original pixel values. Unused if
-                None
-            norm (float): Decrease standard deviation of the image to match this norm after
-                update. Expressed in z-scores. Unused if None
-            add_loss (function): An additional term to add to the network activation before
-                calling backward on it. Usually, some regularization.
+        :param src: Image(s) to updata
+        :param step_size: Step size to use for the update: (im_old += step_size * grad)
+        :param sigma: Standard deviation for gaussian smoothing (if used, see blur).
+        :param eps: Small value to avoid division by zero.
+        :param add_loss: An additional term to add to the network activation before
+                            calling backward on it. Usually, some regularization.
         """
+
         if src.grad is not None:
             src.grad.zero_()
 

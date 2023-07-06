@@ -2,6 +2,14 @@ import torch
 
 
 def adj_model(models, neuron_query, input_shape=None):
+    """
+    Returns an operation that takes all models into account and outputs the activation of the queried neuron
+
+    :param models: The models to be taken into account
+    :param neuron_query: The neuron(s) to be queried
+    :param input_shape: Shape of the input to the model (only needed when querying all neurons or using a lambda function)
+    :return: The operation that takes all models into account and outputs the activation of the queried neuron
+    """
 
     if models is None or len(models) == 0:
         return ValueError("Invalid models, add some")
@@ -39,12 +47,26 @@ def adj_model(models, neuron_query, input_shape=None):
 
 
 def query(x, query):
+    """
+    Find a specific neuron in a tensor
+    :param x: The tensor (output of the model)
+    :param query: Array containing the indices of the neuron
+    :return: The activation of the specific neuron
+    """
     for i in range(len(query)):
         x = x[:, query[i]]
     return x
 
 
 def iterate_all_neurons(tensor, models, condition=lambda x: True):
+    """
+    Iterate over all neurons in a tensor
+
+    :param tensor: The tensor (output of the model) to iterate over
+    :param models: The models to be taken into account
+    :param condition: The condition that must be met for the neuron to be taken into account
+    :return: The list of operations based on the models and the query condition
+    """
     size = tensor.size()
     operations = []
 
@@ -65,6 +87,13 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
 
 
 def operation(models, query_fn):
+    """
+    Returns an operation that takes all models into account and outputs the activation of the queried neuron
+
+    :param models: The models to be taken into account
+    :param query_fn: The function that takes the output of the model and returns the activation of the queried neuron
+    :return: The operation that takes all models into account and outputs the activation of the queried neuron
+    """
     def adj_model(x):
         if x.shape[0] != 1:
             x = x.unsqueeze(0)
@@ -79,6 +108,13 @@ def operation(models, query_fn):
 
 
 def dummy_output(model, input_shape):
+    """
+    Returns a dummy output of the model
+
+    :param model: The model to be used
+    :param input_shape: The input shape of the model
+    :return: The dummy output of the model to be used for querying
+    """
     if input_shape[0] != 1:
         input_shape = (1, *input_shape)
     dummy_input = torch.zeros(*input_shape)

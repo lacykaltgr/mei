@@ -10,11 +10,25 @@ from scipy.ndimage import label
 
 
 def gaussian_mask(img, factor):
+    """
+    Create a gaussian mask based on the image
+
+    :param img: The image
+    :param factor: Strength of the mask
+    :return: The mask
+    """
     *_, mask = fit_gauss_envelope(img)
     return mask ** factor
 
 
 def gaussian_mask_with_info(img, factor):
+    """
+    Create a gaussian mask based on the image
+
+    :param img: The image
+    :param factor: Strength of the mask
+    :return: The mask, the mean, the covariance matrix
+    """
     mu, cov, mask = fit_gauss_envelope(img)
     mu_x = mu[0]
     mu_y = mu[1]
@@ -26,6 +40,17 @@ def gaussian_mask_with_info(img, factor):
 
 
 def mei_mask(img, delta_thr=0.5, size_thr=50, expansion_sigma=3, expansion_thr=0.3, filter_sigma=2):
+    """
+    Create a mask for the MEI image
+
+    :param img: The image
+    :param delta_thr: The threshold for the delta
+    :param size_thr: The threshold for the size
+    :param expansion_sigma: The sigma for the expansion
+    :param expansion_thr: The threshold for the expansion
+    :param filter_sigma: The sigma for the filter
+    :return: The mask
+    """
     delta = img - img.mean()
     mask = np.abs(delta) > delta_thr
     # remove small lobes - likely an artifact
@@ -38,7 +63,19 @@ def mei_mask(img, delta_thr=0.5, size_thr=50, expansion_sigma=3, expansion_thr=0
     mask = gaussian_filter(mask.astype(float), sigma=filter_sigma)
     return mask
 
+
 def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, target_reduction_ratio=0.9):
+    """
+    Create a tight mask for the MEI image
+
+    :param img: The image
+    :param operation: The operation of the MEI
+    :param device: The device
+    :param stdev_size_thr: The threshold for the standard deviation
+    :param filter_sigma: The sigma for the filter
+    :param target_reduction_ratio: The target reduction ratio
+    :return: The mask, the reduction ratio
+    """
     def get_activation(mei):
         with torch.no_grad():
             img = torch.Tensor(mei).to(device)
@@ -78,8 +115,13 @@ def mask_image(img, mask='gaussian', background=0, operation=lambda x: x, device
     Applies the mask `mask` onto the `img`. The completely masked area is then
     replaced with the value `background`.
 
-
-    Returns: masked image
+    :param img: image to be masked
+    :param mask: type of mask to be applied
+    :param background: value to be used for the masked area
+    :param operation: operation to be applied on the masked image
+    :param device: device to be used for the operation
+    :param MaskParams: parameters for the mask
+    :return: masked image
     """
     if mask is None:
         return img
@@ -101,6 +143,9 @@ def fft_smooth(grad, factor=1/4):
     """
     Tones down the gradient with 1/sqrt(f) filter in the Fourier domain.
     Equivalent to low-pass filtering in the spatial domain.
+
+    :param grad: The gradient
+    :param factor: The factor
     """
     if factor == 0:
         return grad
@@ -121,6 +166,13 @@ def fft_smooth(grad, factor=1/4):
 
 
 def blur(img, sigma):
+    """
+    Blurs the image with a Gaussian filter
+
+    :param img: The image
+    :param sigma: The sigma of the blur
+    :return: The blurred image
+    """
     if sigma > 0:
         for d in range(len(img)):
             img[d] = scipy.ndimage.filters.gaussian_filter(img[d], sigma, order=0)
@@ -128,11 +180,26 @@ def blur(img, sigma):
 
 
 def blur_in_place(tensor, sigma):
+    """
+    Blurs the image with a Gaussian filter IN PLACE
+
+    :param tensor: The tensor for the image
+    :param sigma: The sigma of the blur
+    :return: The blurred image
+    """
     blurred = np.stack([blur(im, sigma) for im in tensor.cpu().numpy()])
     tensor.copy_(torch.Tensor(blurred))
 
 
 def roll(tensor, shift, axis):
+    """
+    Rolls the tensor along the given axis by the given shift
+
+    :param tensor: The tensor to roll
+    :param shift: The shift to apply
+    :param axis: The axis on which to shift
+    :return: The shifted tensor
+    """
     if shift == 0:
         return tensor
 
@@ -167,6 +234,15 @@ def batch_std(batch, keepdim=False, unbiased=True):
 
 
 def gauss2d(vx, vy, mu, cov):
+    """
+    Computes the 2D Gaussian distribution with the given parameters.
+
+    :param vx: x coordinate
+    :param vy: y coordinate
+    :param mu: mean
+    :param cov: covariance
+    :return: The Gaussian distribution
+    """
     input_shape = vx.shape
     mu_x, mu_y = mu
     v = np.stack([vx.ravel() - mu_x, vy.ravel() - mu_y])
@@ -179,11 +255,9 @@ def gauss2d(vx, vy, mu, cov):
 def fit_gauss_envelope(img):
     """
     Given an image, finds a Gaussian fit to the image by treating the square of mean shifted image as the distribution.
-    Args:
-        img:
 
-    Returns:
-
+    :param img: The image
+    :return: The Gaussian distribution
     """
     #TODO NEM OKÉS ITT ALATTAM
     if len(img.shape) == 3:
@@ -205,10 +279,13 @@ def fit_gauss_envelope(img):
     return mu, cov, np.sqrt(g.reshape(img.shape))
 
 
-
 def remove_small_area(mask, size_threshold=50):
     """
     Removes contiguous areas in a thresholded image that is smaller in the number of pixels than size_threshold.
+
+    :param mask: The thresholded image
+    :param size_threshold: The threshold
+    :return: The thresholded image with small areas removed
     """
     mask_mod = mask.copy()
     label_im, nb_labels = label(mask_mod)
@@ -220,8 +297,19 @@ def remove_small_area(mask, size_threshold=50):
     return mask_mod
 
 
-
 def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_lim=False, device='cpu'):
+    """
+    Computes the contrast tuning curve for the given image and model.
+
+    :param model: The model
+    :param img: The image to compute the tuning curve for
+    :param min_contrast: The minimum contrast to use
+    :param n: The number of points to use
+    :param linear: Whether to use linearly spaced points
+    :param use_max_lim: Whether to use the maximum possible contrast without clipping
+    :param device: The device to use
+    :return: The contrast tuning curve
+    """
     mu = img.mean()
     delta = img - img.mean()
     vmax = delta.max()
@@ -269,6 +357,21 @@ def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_
 
 def adjust_img_stats(img, mu, sigma, img_min=0, img_max=255, mask=None, max_gain=6000, min_gain=0.001,
                      base_ratio=1.05, verbose=False):
+    """
+    Adjusts the image statistics to the given mean and standard deviation.
+
+    :param img: The image to adjust
+    :param mu: The target mean
+    :param sigma: The target standard deviation
+    :param img_min: The minimum pixel intensity allowed
+    :param img_max: The maximum pixel intensity allowed
+    :param mask: The mask to use
+    :param max_gain: The maximum gain to use
+    :param min_gain: The minimum gain to use
+    :param base_ratio: The base ratio to use
+    :param verbose: The verbosity
+    :return: The adjusted image
+    """
     if mask is None:
         mask = np.ones_like(img)
     mimg = img * mask
@@ -331,28 +434,26 @@ def adjust_contrast(img, contrast=-1, mu=-1, img_min=0, img_max=255, force=True,
         Performs contrast adjustment of the image, being mindful of the image value bounds (e.g. [0, 255]). Given the bounds
         the normal shift and scale will not guarantee that the resulting image still has the desired mean luminance
         and contrast.
-        Args:
-            img: image to adjsut the contrast
-            contrast: desired contrast - this is taken to be the RMS contrast
-            mu: desired mean value of the final image
-            img_min: the minimum pixel intensity allowed
-            img_max: the maximum pixel intensity allowed
-            force: if True, iterative approach is taken to produce an image with the desired stats. This will likely cause
-            some pixels to saturate in the upper and lower bounds. If False, then image is scaled simply based on ratio of
-            current and desired contrast, and then clipped. This likely results in an image that is higher in contrast
-            than the original but not quite at the desired contrast and with some pixel information lost due to clipping.
-            verbose: If True, prints out progress during iterative adjustment
-            steps: If force=True, this sets the number of iterative steps to be used in adjusting the image. The larger the
-            value, the closer the final image would approach the desired contrast.
 
-        Returns:
+        :param img: The image to adjust the contrast of
+        :param contrast: The desired contrast (RMS)
+        :param mu: The desired mean luminance
+        :param img_min: The minimum pixel intensity allowed
+        :param img_max: The maximum pixel intensity allowed
+        :param force: if True, iterative approach is taken to produce an image with the desired stats. This will likely cause
+                    some pixels to saturate in the upper and lower bounds. If False, then image is scaled simply based on ratio of
+                    current and desired contrast, and then clipped. This likely results in an image that is higher in contrast
+                    than the original but not quite at the desired contrast and with some pixel information lost due to clipping.
+        :param verbose: If True, prints out progress during iterative adjustment
+        :param steps: If force=True, this sets the number of iterative steps to be used in adjusting the image. The larger the
+                    value, the closer the final image would approach the desired contrast.
+
+        :return:
             adjusted_image - a new image adjusted from the original such that the desired mean/contrast is achieved to the
                 best of the configuration.
             clipped - Whether any clipping took place. If True, it indicates that some clipping of pixel intensities occured
                 and thus some pixel information was lost.
             actual_contrast - the final contrast of the image reached
-
-
         """
         current_contrast = img.std()
 
@@ -442,26 +543,26 @@ def adjust_contrast_with_mask(img, img_mask=None, contrast=-1, mu=-1, img_min=0,
         Performs contrast adjustment of the image, being mindful of the image value bounds (e.g. [0, 255]). Given the bounds
         the normal shift and scale will not guarantee that the resulting image still has the desired mean luminance
         and contrast.
-        Args:
-            img: image to adjsut the contrast
-            contrast: desired contrast - this is taken to be the RMS contrast
-            mu: desired mean value of the final image
-            img_min: the minimum pixel intensity allowed
-            img_max: the maximum pixel intensity allowed
-            force: if True, iterative approach is taken to produce an image with the desired stats. This will likely cause
-            some pixels to saturate in the upper and lower bounds. If False, then image is scaled simply based on ratio of
-            current and desired contrast, and then clipped. This likely results in an image that is higher in contrast
-            than the original but not quite at the desired contrast and with some pixel information lost due to clipping.
-            verbose: If True, prints out progress during iterative adjustment
 
-        Returns:
+        :param img: The image to adjust the contrast of
+        :param contrast: The desired contrast (RMS)
+        :param mu: The desired mean luminance
+        :param img_min: The minimum pixel intensity allowed
+        :param img_max: The maximum pixel intensity allowed
+        :param force: if True, iterative approach is taken to produce an image with the desired stats. This will likely cause
+                    some pixels to saturate in the upper and lower bounds. If False, then image is scaled simply based on ratio of
+                    current and desired contrast, and then clipped. This likely results in an image that is higher in contrast
+                    than the original but not quite at the desired contrast and with some pixel information lost due to clipping.
+        :param verbose: If True, prints out progress during iterative adjustment
+        :param steps: If force=True, this sets the number of iterative steps to be used in adjusting the image. The larger the
+                    value, the closer the final image would approach the desired contrast.
+
+        :return:
             adjusted_image - a new image adjusted from the original such that the desired mean/contrast is achieved to the
                 best of the configuration.
             clipped - Whether any clipping took place. If True, it indicates that some clipping of pixel intensities occured
                 and thus some pixel information was lost.
             actual_contrast - the final contrast of the image reached
-
-
         """
         if img_mask is None:
             img_mask = np.ones_like(img)
