@@ -19,6 +19,7 @@ def show_image(image, text=None, activation=None):
     plt.axis('off')
     plt.show()
 
+
 def show_image_grid(images, texts=None, activations=None, grid_size=(4, 4), image_size=(4, 4), spacing=0.1):
     num_images = len(images)
     num_rows, num_cols = grid_size
@@ -39,8 +40,6 @@ def show_image_grid(images, texts=None, activations=None, grid_size=(4, 4), imag
 
     plt.subplots_adjust(wspace=spacing, hspace=spacing)
     plt.show()
-
-
 
 
 class _ExampleModel(nn.Module):
@@ -87,7 +86,6 @@ class _ExampleModel(nn.Module):
 
         accuracy = 100 * correct / total
         print(f"Test Accuracy on {self.name}: {accuracy:.2f}%")
-
 
     def save(self):
         torch.save(self.state_dict(), f"./data/{self.name}.pth")

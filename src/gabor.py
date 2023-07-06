@@ -11,7 +11,9 @@ from .neuron_query import adj_model
 
 
 class _InputOptimizerBase:
-
+    """
+    Base class for operation based input optimization, mainly for future extendibility
+    """
     def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
         self.models = models if models is not None else []
         self.bias = bias
@@ -27,6 +29,10 @@ class _InputOptimizerBase:
         self.models.remove(model)
 
     def get_operations(self, neuron_query=None):
+        """
+        :param neuron_query: specifies the query for the optimization (which neuron will be selected)
+        :return: the operation on which the input will be optimized
+        """
         if self.operation is not None:
             return [self.operation]
         elif len(self.models) > 0:
@@ -36,6 +42,17 @@ class _InputOptimizerBase:
 
     @staticmethod
     def masked_responses(images, operation, mask='gaussian', bias=0, device='cpu', **MaskParams):
+        """
+        For comparision of activision between original and masked samples
+
+        :param images: the images to be masked
+        :param operation: the operation on which activisions will be measured
+        :param mask: the type of the mask to be applied
+        :param bias: background color
+        :param device: device
+        :param MaskParams: the parameters of specific masks (more on this in utils)
+        :return: activation of the original image, activation of the masked image, the masked image
+        """
         def evaluate_image(x):
             x = np.atleast_3d(x)
             x = torch.tensor(x, dtype=torch.float32, requires_grad=False, device=device)
@@ -45,6 +62,7 @@ class _InputOptimizerBase:
         original_img_activations = []
         masked_img_activations = []
         masked_images = []
+
         for image in tqdm(images):
             original_img_activations.append(evaluate_image(image))
             masked_image = mask_image(image, mask, bias, operation=operation, **MaskParams)
@@ -55,7 +73,13 @@ class _InputOptimizerBase:
 
     @staticmethod
     def compute_spatial_frequency(img):
+        """
+        Computes and plots the spatial frequency of a given image
+        :param img: image to compute sf on
+        :return: frequency of each column, row in arrays, magnitude spectrum
+        """
         from matplotlib import pyplot as plt
+
         # Compute the 2D Fourier Transform
         fft_img = np.fft.fft2(img)
 
@@ -83,6 +107,11 @@ class _InputOptimizerBase:
 
 
 class Gabor(_InputOptimizerBase):
+    """
+    Gabor filter creation, optimization, comparision
+    Less features but a simpler interface then MEI
+    """
+
     def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
         super().__init__(models, operation, shape, bias, scale, device)
         self.ranges: dict = config.gabor_ranges
@@ -90,10 +119,18 @@ class Gabor(_InputOptimizerBase):
         self.set_ranges(height=[self.img_shape[-2]], width=[self.img_shape[-1]])
 
     def set_ranges(self, **ranges):
+        """
+        Ranges for the grid search for Gabor filter loader
+        :param ranges: The ranges in key-value pairs
+        """
         for key, value in ranges.items():
             self.ranges[key] = value
 
     def set_limits(self, **limits):
+        """
+        Bounds for Gabor filter optimization
+        :param ranges: The bounds in key-value pairs
+        """
         def find_index(list_of_keys, element):
             for index, key in enumerate(list_of_keys):
                 if key == element:
@@ -108,11 +145,11 @@ class Gabor(_InputOptimizerBase):
 
     def best_gabor(self, neuron_query=None, gabor_loader=None):
         """
-        Find the most exciting gabor for cells in the neuron query
+        Find the most exciting gabor filter for cells in the neuron query
 
-        :param neuron_query:
-        :param gabor_loader:
-        :return: best gabor for each cell
+        :param neuron_query: The queried neurons
+        :param gabor_loader: The dataset containing the gabor filters to be evaluated
+        :return: Process(es) for best gabor filter for the queried neurons
         """
         if self.img_shape[0] != 1:
             raise ValueError("Only grayscale images are supported for this feature, try using optimal gabor")
@@ -180,17 +217,12 @@ class Gabor(_InputOptimizerBase):
 
     def optimal_gabor(self, neuron_query=None, target_mean=None, target_contrast=None):
         """
-        Find parameters that produce an optimal gabor for this unit
+        Find parameters that produce an optimal gabor for this queried neurons
 
-        best_gabor:         longblob    # best gabor image
-        best_seed:          int         # random seed used to obtain the best gabor
-        best_activation:    float       # activation at the best gabor image
-        best_phase:         float       # (degree) angle at which to start the sinusoid
-        best_wavelength:    float       # (px) wavelength of the sinusoid (1 / spatial frequency)
-        best_orientation:   float       # (degree) counterclockwise rotation to apply (0 is horizontal, 90 vertical)
-        best_sigma:         float       # (px) sigma of the gaussian mask used
-        best_dy:            float       # (px/height) amount of translation in y (positive moves downwards)
-        best_dx:            float       # (px/width) amount of translation in x (positive moves right)
+        :param neuron_query: The neuron query
+        :param target_mean: Target mean of optimal gabor
+        :param target_contrast: Targer contrast of optimal gabor
+        :return: Process(es) for optimal gabor filters for the queried neurons
         """
         operations = self.get_operations(neuron_query)
         processes = []
@@ -218,11 +250,12 @@ class Gabor(_InputOptimizerBase):
 
                 return -activation
 
-            # Find the best parameters (simulated annealing -> local search)
+
             best_params = None
             best_activation = np.inf
             best_seed = None
 
+            # Find the best parameters (simulated annealing -> local search)
             for seed in tqdm([1, 12, 123, 1234, 12345]):  # try 5 diff random seeds
                 res = optimize.dual_annealing(neg_model_activation, bounds=bounds, no_local_search=True,
                                               maxiter=300, seed=seed)
@@ -276,25 +309,22 @@ class Gabor(_InputOptimizerBase):
             img_min=-1,
             img_max=1,
     ):
-        """ Create a gabor patch (sinusoidal + gaussian).
-    
-        Arguments:
-            height (int): Height of the image in pixels.
-            width (int): Width of the image in pixels.
-            phase (float): Angle at which to start the sinusoid in degrees.
-            wavelength (float): Wavelength of the sinusoid (1 / spatial frequency) in pixels.
-            orientation (float): Counterclockwise rotation to apply (0 is horizontal) in
-                degrees.
-            sigma (float): Sigma of the gaussian mask used in pixels
-            dy (float): Amount of translation in y (positive moves down) in pixels/height.
-            dx (float): Amount of translation in x (positive moves right) in pixels/height.
-            target_mean (float): Target mean of the image. If None, no normalization is applied.
-            target_contrast (float): Target contrast of the image. If None, no normalization is applied.
-            img_min (float): Minimum value of the image.
-            img_max (float): Maximum value of the image.
-    
-        Returns:
-            Array of height x width shape with the required gabor.
+        """
+        :param height: Height of the image in pixels.
+        :param width: Width of the image in pixels.
+        :param phase: Angle at which to start the sinusoid in degrees.
+        :param wavelength: Wavelength of the sinusoid (1 / spatial frequency) in pixels.
+        :param orientation: Counterclockwise rotation to apply (0 is horizontal) in
+        degrees.
+        :param sigma: Sigma of the gaussian mask used in pixels
+        :param dy: Amount of translation in y (positive moves down) in pixels/height.
+        :param dx: Amount of translation in x (positive moves right) in pixels/height.
+        :param target_mean: Target mean of the image. If None, no normalization is applied.
+        :param target_contrast: Target contrast of the image. If None, no normalization is applied.
+        :param img_min: Minimum value of the image.
+        :param img_max: Maximum value of the image.
+
+        :return: Array of height x width shape with the required gabor.
         """
         # Compute image size to avoid translation or rotation producing black spaces
         padding = max(height, width)
@@ -345,7 +375,10 @@ class Gabor(_InputOptimizerBase):
     def create_gabor_loader(param_ranges, load_path=None, save_path=None):
         """
         Grid search over gabor parameters then return a loader with these
-        :return: data loader with gabor patches
+        :param param_ranges: The ranges for the grid search
+        :param load_path: Loading path the samples (new samples won't be created)
+        :param save_path: The created samples will be saved here
+        :return: Dataset with gabor filters
         """
         gabors = []
 

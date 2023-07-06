@@ -152,7 +152,6 @@ class MEIProcess(_Process):
         print('Limited contrast: ', self.lim_contrast)
         print('Point rf: ', self.point_rf)
 
-
     def make_step(self, src, step_size=1.5, sigma=None, eps=1e-12, add_loss=0):
         """
         Update src in place making a gradient ascent step in the output of net.

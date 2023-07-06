@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 
@@ -43,7 +42,6 @@ def query(x, query):
     for i in range(len(query)):
         x = x[:, query[i]]
     return x
-
 
 
 def iterate_all_neurons(tensor, models, condition=lambda x: True):

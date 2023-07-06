@@ -5,12 +5,12 @@ Gabor parameters for grid search
 
 height:         int         # (px) image height
 width:          int         # (px) image width
-phases:         longblob    # (degree) angle at which to start the sinusoid
-wavelengths:    longblob    # (px) wavelength of the sinusoid (1 / spatial frequency)
-orientations:   longblob    # (degree) counterclockwise rotation to apply (0 is horizontal, 90 vertical)
-sigmas:         longblob    # (px) sigma of the gaussian mask used
-dys:            longblob    # (px/height) amount of translation in y (positive moves downwards)
-dxs:            longblob    # (px/width) amount of translation in x (positive moves right)
+phases:         long        # (degree) angle at which to start the sinusoid
+wavelengths:    long        # (px) wavelength of the sinusoid (1 / spatial frequency)
+orientations:   long        # (degree) counterclockwise rotation to apply (0 is horizontal, 90 vertical)
+sigmas:         long        # (px) sigma of the gaussian mask used
+dys:            long        # (px/height) amount of translation in y (positive moves downwards)
+dxs:            long        # (px/width) amount of translation in x (positive moves right)
 """
 gabor_ranges = \
     dict(

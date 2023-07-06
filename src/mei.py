@@ -8,13 +8,22 @@ from .process import MEIProcess
 
 
 class MEI(Gabor):
+    """
+    Class for generating more complex optimized inputs
+    """
     def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
         super().__init__(models, operation, shape, bias, scale, device)
 
     def generate(self, neuron_query=None, **MEIParams):
+        """
+        Generate most exciting inputs
+        Uses deepdraw to optimize images
+        :param neuron_query: The queried neurons of the output layer.
+        :param MEIParams: Additional parameters for the optimization process.
+        :return: Process(es) with MEI images
+        """
 
         processes = []
-
         for op in self.get_operations(neuron_query):
             process = MEIProcess(op, bias=self.bias, scale=self.scale, device=self.device, **MEIParams)
 
@@ -31,21 +40,28 @@ class MEI(Gabor):
                 img = torch.Tensor(gen_image).to(self.device)
                 activation = process.operation(img).data.cpu().numpy()[0]
 
-            #cont, vals, lim_contrast = contrast_tuning(op, mei, device=self.device)
+            cont, vals, lim_contrast = contrast_tuning(op, mei, device=self.device)
 
             process.image = mei
             process.activation = activation
-            #process.monotonic = bool(np.all(np.diff(vals) >= 0))
-            #process.max_activation = np.max(vals)
-            #process.max_contrast = cont[np.argmax(vals)]
-            #process.sat_contrast = np.max(cont)
-            #process.img_mean = mei.mean()
-            #process.lim_contrast = lim_contrast
+            process.monotonic = bool(np.all(np.diff(vals) >= 0))
+            process.max_activation = np.max(vals)
+            process.max_contrast = cont[np.argmax(vals)]
+            process.sat_contrast = np.max(cont)
+            process.img_mean = mei.mean()
+            process.lim_contrast = lim_contrast
             processes.append(process)
 
         return processes if len(processes) > 1 else processes[0]
 
     def gradient_rf(self, neuron_query=None, **MEIParams):
+        """
+        Generate most exciting inputs based on the linear function of the gradients of the input
+        Uses deepdraw to optimize images
+        :param neuron_query: The queried neurons of the output layer.
+        :param MEIParams: Additional parameters for the optimization process.
+        :return: Process(es) with GradientRF images
+        """
         def init_rf_image(stimulus_shape=(1, 36, 64)):
             return torch.zeros(1, *stimulus_shape, device=self.device, requires_grad=True)
 
@@ -64,7 +80,6 @@ class MEI(Gabor):
                 return (x * rf).sum()
 
             process = MEIProcess(linear_model, bias=self.bias, scale=self.scale, device=self.device, **MEIParams)
-
 
             # generate initial random image
             background_color = np.float32([self.bias] * self.img_shape[-1])
@@ -94,18 +109,16 @@ class MEI(Gabor):
 
     @staticmethod
     def deepdraw(process, image, random_crop=True, original_size=None):
-        """ Generate an image by iteratively optimizing activity of net.
+        """
+        Generate an image by iteratively optimizing activity of net.
 
-        Arguments:
-            process (MEIProcess): Process object with operation and other parameters.
-            image (np.array): Initial image (h x w x c)
-            random_crop (boolean): If image to optimize is bigger than networks input image,
-                optimize random crops of the image each iteration.
-            original_size (triplet): (channel, height, width) expected by the network. If
-                None, it uses base_img's.
-
-        Returns:
-            A h x w array. The optimized image.
+        :param process: Process object with operation and other parameters.
+        :param image: Initial image (h x w x c)
+        :param random_crop: If image to optimize is bigger than networks input image,
+        optimize random crops of the image each iteration.
+        :param original_size: (channel, height, width) expected by the network. If
+                            None, it uses base_img's.
+        :return: The optimized image
         """
         # get input dimensions from net
         if original_size is None:
@@ -158,21 +171,24 @@ class MEI(Gabor):
     @staticmethod
     def diverse_deepdraw(process, image, random_crop=True, original_size=None,
                          div_metric='correlation', div_linkage='minimum', div_weight=0, div_mask=1):
-        """ Similar to deepdraw() but including a diversity term among all images a la
+        """
+        Similar to deepdraw() but including a diversity term among all images a la
         Cadena et al., 2018.
 
-        Arguments (only those additional to deepdraw):
-            image: (CHANGED) Expects a 4-d array (num_images x height x width x channels).
-            random_crop (boolean): If image to optimize is bigger than networks input image,
-                optimize random crops of the image each iteration.
-            original_size (triplet): (channel, height, width) expected by the network. If
-                None, it uses base_img's.
-            div_metric (str): What metric to use when computing pairwise differences.
-            div_linkage (str): How to agglomerate pairwise distances.
-            div_weight (float): Weight given to the diversity term in the objective function.
-            div_mask (np.array): Array (height x width) used to mask irrelevant parts of the
-                image before calculating diversity.
+        :param process: Process object with operation and other parameters.
+        :param image: Expects a 4-d array (num_images x height x width x channels).
+        :param random_crop: If image to optimize is bigger than networks input image,
+                            optimize random crops of the image each iteration.
+        :param original_size: (channel, height, width) expected by the network. If
+                            None, it uses base_img's.
+        :param div_metric: What metric to use when computing pairwise differences.
+        :param div_linkage: How to agglomerate pairwise distances.
+        :param div_weight: Weight given to the diversity term in the objective function.
+        :param div_mask: Array (height x width) used to mask irrelevant parts of the
+                            image before calculating diversity.
+        :return: Array of optimized images
         """
+
         if len(image) < 2:
             raise ValueError('You need to pass at least two initial images. Did you mean to '
                              'use deepdraw()?')
@@ -253,10 +269,6 @@ class MEI(Gabor):
                     div_term = div_weight * distance
 
                 process.make_step(src, sigma=sigma, step_size=step_size, add_loss=div_term)
-
-                # TODO: Maybe save the MEIs every number of iterations and return all MEIs.
-                if i % 10 == 0:
-                    print('finished step %d in octave %d' % (i, e))
 
                 # insert modified image back into original image (if necessary)
                 image[..., ox:ox + w, oy:oy + h] = src.detach().cpu().numpy()
