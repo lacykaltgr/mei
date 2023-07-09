@@ -56,8 +56,8 @@ class _ExampleModel(nn.Module):
         for epoch in range(epochs):
             running_loss = 0.0
             for i, (inputs, labels) in enumerate(self.train_loader):
-                inputs = inputs.to(self.device)
-                labels = labels.to(self.device)
+                inputs = inputs.to(self.device).type(type(next(self.parameters()).data))
+                labels = labels.to(self.device).type(torch.LongTensor)
 
                 self.optimizer.zero_grad()
 
@@ -71,13 +71,14 @@ class _ExampleModel(nn.Module):
                     print(f"Epoch [{epoch+1}/{epochs}], Step [{i+1}/{len(self.train_loader)}], Loss: {running_loss/100:.4f} on {self.name}")
                     running_loss = 0.0
 
-    def eval(self):
+    def evaluate(self):
+        self.eval()
         correct = 0
         total = 0
         with torch.no_grad():
             for inputs, labels in self.test_loader:
-                inputs = inputs.to(self.device)
-                labels = labels.to(self.device)
+                inputs = inputs.to(self.device).type(type(next(self.parameters()).data))
+                labels = labels.to(self.device).type(torch.LongTensor)
 
                 outputs = self(inputs)
                 _, predicted = torch.max(outputs.data, 1)
@@ -89,6 +90,7 @@ class _ExampleModel(nn.Module):
 
     def save(self):
         torch.save(self.state_dict(), f"./data/{self.name}.pth")
+        print(f"Saved {self.name}.")
 
     def load(self):
         import os
@@ -122,6 +124,7 @@ class MNIST_model(_ExampleModel):
         batch_size = 128
         self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         self.test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
 
         if load:
             self.load()
@@ -236,8 +239,86 @@ class CIFAR_model(_ExampleModel):
         return F.softmax(x, dim=1)
 
 
+class MNIST_autoencoder(_ExampleModel):
+    def __init__(self, name='model', device='cuda', load=False):
+        super(MNIST_autoencoder, self).__init__(name=name, device=device)
 
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(16, 8, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(8, 4, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(True)
+        )
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(4, 8, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(8, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(16, 1, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.Sigmoid()
+        )
 
+        self.optimizer = optim.Adam(self.parameters(), lr=0.001)
+        self.criterion = nn.MSELoss()
+
+        transformer = Compose([
+            ToTensor(),
+            transforms.Normalize((0,), (1,))
+        ])
+
+        train_dataset = MNIST(root='./data', train=True, download=True, transform=transformer)
+        test_dataset = MNIST(root='./data', train=False, download=True, transform=transformer)
+        batch_size = 128
+        self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        self.test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+        if load:
+            self.load()
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
+
+    def encode(self, x):
+        return self.encoder(x)
+
+    def decode(self, x):
+        return self.decoder(x)
+
+    def train(self, epochs=10):
+        for epoch in range(epochs):
+            running_loss = 0.0
+            for i, (data, _) in enumerate(self.train_loader):
+                data = data.to(self.device).type(type(next(self.parameters()).data))
+
+                self.optimizer.zero_grad()
+
+                output = self(data)
+                loss = self.criterion(output, data)
+                loss.backward()
+                running_loss += loss.item()
+                self.optimizer.step()
+
+                if i % 100 == 99:
+                    print(f"Epoch [{epoch+1}/{epochs}], Step [{i+1}/{len(self.train_loader)}], Loss: {running_loss/100:.4f} on {self.name}")
+                    running_loss = 0.0
+
+    def evaluate(self):
+        self.eval()
+        total_loss = 0
+        with torch.no_grad():
+            for batch_idx, (data, _) in enumerate(self.test_loader):
+                data = data.to(self.device).type(type(next(self.parameters()).data))
+
+                output = self(data)
+                loss = self.criterion(output, data)
+                total_loss += loss.item()
+
+        average_loss = total_loss / len(self.train_loader)
+        print(f"Average Reconstruction Loss on {self.name}: {average_loss:.4f}")
 
 
 

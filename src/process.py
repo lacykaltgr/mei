@@ -25,7 +25,9 @@ class _Process:
         """
         img_activations = []
         for image, label in tqdm(dataloader.dataset):
-            image = np.atleast_3d(mask_image(image, mask, self.bias, **MaskParams))  # ensure channel dimension exist
+            image = mask_image(image, mask, self.bias, **MaskParams)
+            if len(image.shape) == 2:
+                image = np.expand_dims(image, axis=0)
             image = torch.tensor(image, dtype=torch.float32, requires_grad=True, device=self.device)
             y = self.operation(image)
             img_activations.append(y.item())
@@ -61,6 +63,7 @@ class _Process:
             _InputOptimizerBase.masked_responses([self.image], self.operation, mask, self.bias, **MaskParams)
         return masked_img_activations[0], masked_images[0]
 
+    #TODO
     def jittered_responses(self, jitter_size):
         """
         Jitter the image and return the activation of the operation

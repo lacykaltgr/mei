@@ -14,8 +14,8 @@ dxs:            long        # (px/width) amount of translation in x (positive mo
 """
 gabor_ranges = \
     dict(
-        height=[36],
-        width=[64],
+        height=[32],
+        width=[32],
         phase=[0, 90, 180, 270],
         wavelength=[4, 7, 10, 15, 20],
         orientation=np.linspace(0, 180, 8, endpoint=False),

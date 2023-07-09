@@ -14,6 +14,7 @@ class _InputOptimizerBase:
     """
     Base class for operation based input optimization, mainly for future extendibility
     """
+
     def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
         self.models = models if models is not None else []
         self.bias = bias
@@ -53,8 +54,10 @@ class _InputOptimizerBase:
         :param MaskParams: the parameters of specific masks (more on this in utils)
         :return: activation of the original image, activation of the masked image, the masked image
         """
+
         def evaluate_image(x):
-            x = np.atleast_3d(x)
+            if len(x.shape) == 2:
+                x = np.expand_dims(x, axis=0)
             x = torch.tensor(x, dtype=torch.float32, requires_grad=False, device=device)
             y = operation(x).data.cpu().numpy()[0]
             return y
@@ -89,19 +92,19 @@ class _InputOptimizerBase:
         # Compute the magnitude spectrum (absolute value)
         magnitude_spectrum = np.abs(fft_img_shifted)
 
-        # Compute the spatial frequencies
         if len(img.shape) == 2:
             rows, cols = img.shape
-            channels = 1
+            plt.imshow(np.log1p(magnitude_spectrum), cmap='gray')
         else:
             channels, rows, cols = img.shape
+            for channel in range(channels):
+                plt.imshow(np.log1p(magnitude_spectrum[channel]), cmap='gray')
+
+        plt.colorbar()
+        plt.show()
+
         freq_rows = np.fft.fftfreq(rows)
         freq_cols = np.fft.fftfreq(cols)
-
-        for channel in range(channels):
-            plt.imshow(np.log1p(magnitude_spectrum[:, :, channel]), cmap='gray')
-            plt.colorbar()
-            plt.show()
 
         return freq_cols, freq_rows, magnitude_spectrum
 
@@ -109,7 +112,7 @@ class _InputOptimizerBase:
 class Gabor(_InputOptimizerBase):
     """
     Gabor filter creation, optimization, comparision
-    Less features but a simpler interface then MEI
+    Fewer features but a simpler interface then MEI
     """
 
     def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
@@ -131,6 +134,7 @@ class Gabor(_InputOptimizerBase):
         Bounds for Gabor filter optimization
         :param ranges: The bounds in key-value pairs
         """
+
         def find_index(list_of_keys, element):
             for index, key in enumerate(list_of_keys):
                 if key == element:
@@ -169,11 +173,9 @@ class Gabor(_InputOptimizerBase):
                 img_activations = []
                 for op in operations:
                     img_activations.append(op(img).cpu().numpy())
-                if len(img_activations) == 1:
-                    img_activations = img_activations[0]
+                img_activations = np.squeeze(img_activations)
                 activations.append(img_activations)
-        activations = np.concatenate(activations)  # num_gabors x num_cells
-        processes = []
+        activations = np.array(activations)
 
         if activations.ndim == 1:
             best_idx = np.argmax(activations)
@@ -193,6 +195,8 @@ class Gabor(_InputOptimizerBase):
                 dy=best_dy,
                 dx=best_dx)
 
+        activations = np.concatenate(activations)
+        processes = []
         for neuron_id, neuron_activations in enumerate(activations.T):
             # Select best gabor
             best_idx = np.argmax(neuron_activations)
@@ -250,7 +254,6 @@ class Gabor(_InputOptimizerBase):
 
                 return -activation
 
-
             best_params = None
             best_activation = np.inf
             best_seed = None
@@ -271,27 +274,26 @@ class Gabor(_InputOptimizerBase):
             best_params = [np.clip(p, l, u) for p, (l, u) in zip(best_params, bounds)]
 
             # Create best gabor
-            best_gabor = [self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
+            best_gabor = np.squeeze([self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
                                             phase=best_params[6 * i], wavelength=best_params[6 * i + 1],
                                             orientation=best_params[6 * i + 2], sigma=best_params[6 * i + 3],
                                             dy=best_params[6 * i + 4], dx=best_params[6 * i + 5])
-                          for i in range(self.img_shape[0])]
+                          for i in range(self.img_shape[0])])
             best_activation = -neg_model_activation(best_params)
 
-            processes.append([GaborProcess(seed=best_seed,
-                                           operation=op,
-                                           image=best_gabor,
-                                           bias=self.bias,
-                                           scale=self.scale,
-                                           device=self.device,
-                                           activation=best_activation,
-                                           phase=[best_params[i] for i in range(self.img_shape[0])],
-                                           wavelength=[best_params[i + 1] for i in range(self.img_shape[0])],
-                                           orientation=[best_params[i + 2] for i in range(self.img_shape[0])],
-                                           sigma=[best_params[i + 3] for i in range(self.img_shape[0])],
-                                           dy=[best_params[i + 4] for i in range(self.img_shape[0])],
-                                           dx=[best_params[i + 5] for i in range(self.img_shape[0])])])
-
+            processes.append(GaborProcess(seed=best_seed,
+                                          operation=op,
+                                          image=best_gabor,
+                                          bias=self.bias,
+                                          scale=self.scale,
+                                          device=self.device,
+                                          activation=best_activation,
+                                          phase=[best_params[i] for i in range(self.img_shape[0])],
+                                          wavelength=[best_params[i + 1] for i in range(self.img_shape[0])],
+                                          orientation=[best_params[i + 2] for i in range(self.img_shape[0])],
+                                          sigma=[best_params[i + 3] for i in range(self.img_shape[0])],
+                                          dy=[best_params[i + 4] for i in range(self.img_shape[0])],
+                                          dx=[best_params[i + 5] for i in range(self.img_shape[0])]))
         return processes if len(processes) > 1 else processes[0]
 
     @staticmethod

@@ -46,7 +46,7 @@ class MEI(Gabor):
             process.activation = activation
             process.monotonic = bool(np.all(np.diff(vals) >= 0))
             process.max_activation = np.max(vals)
-            process.max_contrast = cont[np.argmax(vals)]
+            #process.max_contrast = cont[np.argmax(vals)]
             process.sat_contrast = np.max(cont)
             process.img_mean = mei.mean()
             process.lim_contrast = lim_contrast
@@ -62,7 +62,7 @@ class MEI(Gabor):
         :param MEIParams: Additional parameters for the optimization process.
         :return: Process(es) with GradientRF images
         """
-        def init_rf_image(stimulus_shape=(1, 36, 64)):
+        def init_rf_image(stimulus_shape=(1, 32, 32)):
             return torch.zeros(1, *stimulus_shape, device=self.device, requires_grad=True)
 
         processes = []
@@ -136,9 +136,6 @@ class MEI(Gabor):
             for i in range(o['iter_n']):
                 if imw > w:
                     if random_crop:
-                        # randomly select a crop
-                        # ox = random.randint(0,imw-224)
-                        # oy = random.randint(0,imh-224)
                         mid_x = (imw - w) / 2.
                         width_x = imw - w
                         ox = np.random.normal(mid_x, width_x * 0.3, 1)
@@ -210,9 +207,6 @@ class MEI(Gabor):
             for i in range(o['iter_n']):
                 if imw > w:
                     if random_crop:
-                        # randomly select a crop
-                        # ox = random.randint(0,imw-224)
-                        # oy = random.randint(0,imh-224)
                         mid_x = (imw - w) / 2.
                         width_x = imw - w
                         ox = np.random.normal(mid_x, width_x * 0.3, 1)

@@ -53,8 +53,11 @@ def query(x, query):
     :param query: Array containing the indices of the neuron
     :return: The activation of the specific neuron
     """
+    x = x.squeeze()
     for i in range(len(query)):
-        x = x[:, query[i]]
+        if len(x.shape) != 1:
+            x = x[query[i]]
+    x = x.unsqueeze(0)
     return x
 
 
@@ -73,10 +76,10 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
     def recursive_iterate(elements, indices):
         if len(indices) == len(size):
             if condition(indices):
-                current_indices = indices[1:].copy()
+                current_indices = indices[-3:].copy()
                 operations.append(operation(models, lambda x: query(x, current_indices)))
         else:
-            dim_size = size[len(indices)]
+            dim_size = size[len(indices)-1]
             for i in range(dim_size):
                 indices.append(i)
                 recursive_iterate(elements, indices)

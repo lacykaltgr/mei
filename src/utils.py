@@ -3,7 +3,8 @@ import numpy as np
 from numpy.linalg import inv, cholesky
 import warnings
 from tqdm import tqdm
-from skimage.morphology import convex_hull_image, erosion, square, cube
+from skimage.morphology import convex_hull_image
+from scipy.ndimage import binary_erosion, generate_binary_structure
 import scipy
 from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage import label
@@ -94,9 +95,10 @@ def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, tar
 
     count = 0
     while (activation > base_line * target_reduction_ratio):
-        #TODO EZ SE OKÉS
-        selem = square(3) if img.shape[0] == 1 else cube(3)
-        mask = erosion(mask, selem)
+        selem_size = 3
+        selem = generate_binary_structure(img.ndim, 1)
+        selem[selem_size//2] = 1
+        mask = binary_erosion(mask, selem)
         fm = gaussian_filter(mask.astype(float), sigma=filter_sigma)
         masked_img = fm * img + (1 - fm) * img.mean()
         activation = get_activation(masked_img)
@@ -149,19 +151,12 @@ def fft_smooth(grad, factor=1/4):
     """
     if factor == 0:
         return grad
-    #h, w = grad.size()[-2:]
-    # grad = tf.transpose(grad, [0, 3, 1, 2])
-    # grad_fft = tf.fft2d(tf.cast(grad, tf.complex64))
     h, w = grad.size()[-2:]
-    # grad = tf.transpose(grad, [0, 3, 1, 2])
-    # grad_fft = tf.fft2d(tf.cast(grad, tf.complex64))
     tw = np.minimum(np.arange(0, w), np.arange(w-1, -1, -1), dtype=np.float32)  # [-(w+2)//2:]
     th = np.minimum(np.arange(0, h), np.arange(h-1, -1, -1), dtype=np.float32)
     t = 1 / np.maximum(1.0, (tw[None, :] ** 2 + th[:, None] ** 2) ** factor)
     F = grad.new_tensor(t / t.mean()).unsqueeze(-1)
-    print(F.shape)
     pp = torch.fft.rfft(grad.data, 2)
-    print(pp.shape)
     return torch.fft.irfft(pp * F, 2)
 
 
@@ -259,8 +254,8 @@ def fit_gauss_envelope(img):
     :param img: The image
     :return: The Gaussian distribution
     """
-    #TODO NEM OKÉS ITT ALATTAM
-    if len(img.shape) == 3:
+    # scale down the image to 2 dimensions
+    while len(img.shape) > 2:
         img = img.mean(axis=0)
     vx, vy = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
     rect = (img - img.mean()) ** 2
@@ -392,7 +387,6 @@ def adjust_img_stats(img, mu, sigma, img_min=0, img_max=255, mask=None, max_gain
         dir_sign = np.sign(np.log(gain))
         ratio = base_ratio ** dir_sign
 
-
         max_gain = min(max(img_max - mu, mu - img_min) / np.min(np.abs(delta)[mask > 0]), max_gain)
         min_gain = min_gain
 
@@ -469,10 +463,9 @@ def adjust_contrast(img, contrast=-1, mu=-1, img_min=0, img_max=255, force=True,
         min_pdist = delta[delta > 0].min()
         min_ndist = (-delta[delta < 0]).min()
 
-        # point beyond which scaling would completely saturate out the image (e.g. all pixels would be completely black or
-        # white)
+        # point beyond which scaling would completely saturate out the image (e.g. all pixels would be completely
+        # black or white)
         max_lim_gain = max((img_max - mu) / min_pdist, (mu - img_min) / min_ndist)
-
 
         vmax = delta.max()
         vmin = delta.min()
@@ -545,6 +538,7 @@ def adjust_contrast_with_mask(img, img_mask=None, contrast=-1, mu=-1, img_min=0,
         and contrast.
 
         :param img: The image to adjust the contrast of
+        :param img_mask: The mask to use for the adjustment. If None, then the entire image is used.
         :param contrast: The desired contrast (RMS)
         :param mu: The desired mean luminance
         :param img_min: The minimum pixel intensity allowed
