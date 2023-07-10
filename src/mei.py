@@ -62,16 +62,12 @@ class MEI(Gabor):
         :param MEIParams: Additional parameters for the optimization process.
         :return: Process(es) with GradientRF images
         """
-        def init_rf_image(stimulus_shape=(1, 32, 32)):
-            return torch.zeros(1, *stimulus_shape, device=self.device, requires_grad=True)
 
         processes = []
         for op in self.get_operations(neuron_query):
 
-            init_process = MEIProcess(op, bias=self.bias, scale=self.scale, device=self.device, **MEIParams)
-
-            X = init_rf_image(self.img_shape)
-            y = init_process.operation(X)
+            X = torch.zeros(1, *self.img_shape, device=self.device, requires_grad=True)
+            y = op(X)
             y.backward()
             point_rf = X.grad.data.cpu().numpy().squeeze()
             rf = X.grad.data
@@ -91,7 +87,7 @@ class MEI(Gabor):
 
             with torch.no_grad():
                 img = torch.Tensor(gen_image).to(self.device)
-                activation = init_process.operation(img).data.cpu().numpy()
+                activation = op(img).data.cpu().numpy()
 
             cont, vals, lim_contrast = contrast_tuning(op, rf, self.bias, self.scale)
 
