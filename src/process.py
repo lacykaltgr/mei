@@ -13,6 +13,7 @@ class _Process:
         self.scale = scale
         self.image = image
         self.operation = operation
+        self.neuron_query = None
 
     def best_match(self, dataloader, mask=None, **MaskParams):
         """
@@ -28,7 +29,10 @@ class _Process:
             image = mask_image(image, mask, self.bias, **MaskParams)
             if len(image.shape) == 2:
                 image = np.expand_dims(image, axis=0)
-            image = torch.tensor(image, dtype=torch.float32, requires_grad=True, device=self.device)
+            if type(image) is not torch.Tensor:
+                image = torch.tensor(image, dtype=torch.float32, requires_grad=True, device=self.device)
+            else:
+                image.requires_grad = True
             y = self.operation(image)
             img_activations.append(y.item())
 
@@ -88,7 +92,7 @@ class _Process:
                 jitter_y, jitter_x = int(jitter_y), int(jitter_x)
                 jittered_img = roll(roll(img, jitter_y, -2), jitter_x, -1)
                 jiterred_images.append(jittered_img)
-                activations[iy, ix] = self.operation(jittered_img).data.cpu().numpy()[0]
+                activations[iy, ix] = self.operation(jittered_img).data.cpu().numpy()
 
         return activations, jiterred_images
 
@@ -107,10 +111,10 @@ class _Process:
         shifted_mei = np.roll(np.roll(self.image, x_shift, 1), y_shift, 0)
 
         with torch.no_grad():
-            shifted_mei = torch.Tensor(shifted_mei).to(self.device).unsqueeze(0)
-            activations = self.operation(shifted_mei).data.cpu().numpy()[0]
+            shifted_mei = torch.Tensor(shifted_mei).to(self.device)
+            activations = self.operation(shifted_mei).data.cpu().numpy()
 
-        return activations, shifted_mei.squeeze(0)
+        return activations, shifted_mei
 
     def spatial_frequency(self):
         """

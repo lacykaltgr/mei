@@ -13,7 +13,7 @@ def show_image(image, text=None, activation=None):
     if text is not None:
         plt.suptitle(text, fontsize=12)
     if activation is not None:
-        plt.title('Activation: {:.2f}'.format(activation), fontsize=8)
+        plt.title(f'Activation: {activation:.2f}', fontsize=8)
 
     plt.imshow(image, cmap='gray')
     plt.axis('off')
@@ -31,7 +31,7 @@ def show_image_grid(images, texts=None, activations=None, grid_size=(4, 4), imag
         if text is not None:
             ax.set_title(text, fontsize=12)
         if activation is not None:
-            ax.set_xlabel('Activation: {:.2f}'.format(activation), fontsize=8)
+            ax.set_xlabel(f'Activation: {activation:.2f}', fontsize=8)
         ax.imshow(image, cmap='gray')
         ax.axis('off')
 

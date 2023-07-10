@@ -52,6 +52,7 @@ def mei_mask(img, delta_thr=0.5, size_thr=50, expansion_sigma=3, expansion_thr=0
     :param filter_sigma: The sigma for the filter
     :return: The mask
     """
+    img = img.squeeze()
     delta = img - img.mean()
     mask = np.abs(delta) > delta_thr
     # remove small lobes - likely an artifact
@@ -80,9 +81,10 @@ def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, tar
     def get_activation(mei):
         with torch.no_grad():
             img = torch.Tensor(mei).to(device)
-            activation = operation(img).data.cpu().numpy()[0]
+            activation = operation(img).data.cpu().numpy()
         return activation
 
+    img = img.squeeze()
     delta = img - img.mean()
     fluc = np.abs(delta)
     thr = np.std(fluc) * stdev_size_thr
@@ -93,6 +95,7 @@ def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, tar
     masked_img = fm * img + (1 - fm) * img.mean()
     activation = base_line = get_activation(masked_img)
 
+    #TODO: fix for multiple channels
     count = 0
     while (activation > base_line * target_reduction_ratio):
         selem_size = 3
@@ -340,7 +343,7 @@ def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_
         img = delta * g + mu
         img = np.clip(img, 0, 1)
         c = img.std()
-        v = run(img).data.cpu().numpy()[0]
+        v = run(img).data.cpu().numpy()
         cont.append(c)
         vals.append(v)
 

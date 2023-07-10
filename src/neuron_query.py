@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 
 
@@ -33,7 +34,7 @@ def adj_model(models, neuron_query, input_shape=None):
     elif type(neuron_query) == int:
         # 1D
         def query_fn(x: torch.Tensor):
-            return x[:, neuron_query]
+            return query(x, [neuron_query])
 
     elif type(neuron_query) == list:
         # 2D+
@@ -49,15 +50,22 @@ def adj_model(models, neuron_query, input_shape=None):
 def query(x, query):
     """
     Find a specific neuron in a tensor
+
     :param x: The tensor (output of the model)
     :param query: Array containing the indices of the neuron
     :return: The activation of the specific neuron
     """
+    # adjust query and output to be the same size
     x = x.squeeze()
+    while len(query) < len(x.shape):
+        query.insert(0, 0)
+    while len(query) > len(x.shape):
+        query.pop(0)
+
+    # execute query
     for i in range(len(query)):
-        if len(x.shape) != 1:
+        if x.shape[0] > query[i]:
             x = x[query[i]]
-    x = x.unsqueeze(0)
     return x
 
 
@@ -75,11 +83,12 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
 
     def recursive_iterate(elements, indices):
         if len(indices) == len(size):
+            # add operation if condition is met
             if condition(indices):
-                current_indices = indices[-3:].copy()
+                current_indices = indices.copy()
                 operations.append(operation(models, lambda x: query(x, current_indices)))
         else:
-            dim_size = size[len(indices)-1]
+            dim_size = size[len(indices)]
             for i in range(dim_size):
                 indices.append(i)
                 recursive_iterate(elements, indices)
@@ -97,16 +106,21 @@ def operation(models, query_fn):
     :param query_fn: The function that takes the output of the model and returns the activation of the queried neuron
     :return: The operation that takes all models into account and outputs the activation of the queried neuron
     """
+
     def adj_model(x):
-        if x.shape[0] != 1:
+        while x.shape[0] != 1 or len(x.shape) < 3:
             x = x.unsqueeze(0)
+
         count = 0
         sums = None
+
+        # ensemble response of all models
         for model in models:
             y = query_fn(model(x))
-            sums = y if count == 0 else sums+y
+            sums = y if count == 0 else sums + y
             count += 1
         return sums / count
+
     return adj_model
 
 

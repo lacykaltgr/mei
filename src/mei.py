@@ -33,20 +33,20 @@ class MEI(Gabor):
             gen_image = np.clip(gen_image, -1, 1)
 
             # generate class visualization via octavewise gradient ascent
-            gen_image = MEI.deepdraw(process, gen_image, random_crop=False)
-            mei = gen_image.squeeze()
+            mei = MEI.deepdraw(process, gen_image, random_crop=False)
 
             with torch.no_grad():
                 img = torch.Tensor(gen_image).to(self.device)
-                activation = process.operation(img).data.cpu().numpy()[0]
+                activation = process.operation(img).data.cpu().numpy()
 
             cont, vals, lim_contrast = contrast_tuning(op, mei, device=self.device)
 
             process.image = mei
+            process.neuron_query = neuron_query
             process.activation = activation
             process.monotonic = bool(np.all(np.diff(vals) >= 0))
             process.max_activation = np.max(vals)
-            #process.max_contrast = cont[np.argmax(vals)]
+            process.max_contrast = cont[np.argmax(vals)]
             process.sat_contrast = np.max(cont)
             process.img_mean = mei.mean()
             process.lim_contrast = lim_contrast
@@ -87,12 +87,11 @@ class MEI(Gabor):
             gen_image = np.clip(gen_image, -1, 1)
 
             # generate class visualization via octavewise gradient ascent
-            gen_image = MEI.deepdraw(process, gen_image, random_crop=False)
-            rf = gen_image.squeeze()
+            rf = MEI.deepdraw(process, gen_image, random_crop=False)
 
             with torch.no_grad():
                 img = torch.Tensor(gen_image).to(self.device)
-                activation = init_process.operation(img).data.cpu().numpy()[0]
+                activation = init_process.operation(img).data.cpu().numpy()
 
             cont, vals, lim_contrast = contrast_tuning(op, rf, self.bias, self.scale)
 

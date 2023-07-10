@@ -59,7 +59,7 @@ class _InputOptimizerBase:
             if len(x.shape) == 2:
                 x = np.expand_dims(x, axis=0)
             x = torch.tensor(x, dtype=torch.float32, requires_grad=False, device=device)
-            y = operation(x).data.cpu().numpy()[0]
+            y = operation(x).data.cpu().numpy()
             return y
 
         original_img_activations = []
