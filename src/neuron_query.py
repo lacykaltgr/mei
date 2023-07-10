@@ -1,5 +1,4 @@
-import numpy as np
-import torch
+import tensorflow as tf
 
 
 def adj_model(models, neuron_query, input_shape=None):
@@ -33,7 +32,7 @@ def adj_model(models, neuron_query, input_shape=None):
 
     elif type(neuron_query) == int:
         # 1D
-        def query_fn(x: torch.Tensor):
+        def query_fn(x):
             return query(x, [neuron_query])
 
     elif type(neuron_query) == list:
@@ -56,7 +55,7 @@ def query(x, query):
     :return: The activation of the specific neuron
     """
     # adjust query and output to be the same size
-    x = x.squeeze()
+    x = tf.squeeze(x)
     while len(query) < len(x.shape):
         query.insert(0, 0)
     while len(query) > len(x.shape):
@@ -78,7 +77,7 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
     :param condition: The condition that must be met for the neuron to be taken into account
     :return: The list of operations based on the models and the query condition
     """
-    size = tensor.size()
+    size = tensor.shape
     operations = []
 
     def recursive_iterate(elements, indices):
@@ -109,7 +108,7 @@ def operation(models, query_fn):
 
     def adj_model(x):
         while x.shape[0] != 1 or len(x.shape) < 3:
-            x = x.unsqueeze(0)
+            x = tf.expand_dims(x, 0)
 
         count = 0
         sums = None
@@ -134,6 +133,5 @@ def dummy_output(model, input_shape):
     """
     if input_shape[0] != 1:
         input_shape = (1, *input_shape)
-    dummy_input = torch.zeros(*input_shape)
-    dummy_output = model(dummy_input)
-    return dummy_output
+    dummy_input = tf.zeros(input_shape)
+    return model(dummy_input)

@@ -1,5 +1,5 @@
 import numpy as np
-import torch
+import tensorflow as tf
 from tqdm import tqdm
 from scipy import optimize
 from scipy import ndimage, signal
@@ -15,11 +15,10 @@ class _InputOptimizerBase:
     Base class for operation based input optimization, mainly for future extendibility
     """
 
-    def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
+    def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1):
         self.models = models if models is not None else []
         self.bias = bias
         self.scale = scale
-        self.device = device
         self.img_shape = shape
         self.operation = operation
 
@@ -42,7 +41,7 @@ class _InputOptimizerBase:
             raise ValueError("No valid operation")
 
     @staticmethod
-    def masked_responses(images, operation, mask='gaussian', bias=0, device='cpu', **MaskParams):
+    def masked_responses(images, operation, mask='gaussian', bias=0, **MaskParams):
         """
         For comparision of activision between original and masked samples
 
@@ -50,7 +49,6 @@ class _InputOptimizerBase:
         :param operation: the operation on which activisions will be measured
         :param mask: the type of the mask to be applied
         :param bias: background color
-        :param device: device
         :param MaskParams: the parameters of specific masks (more on this in utils)
         :return: activation of the original image, activation of the masked image, the masked image
         """
@@ -58,8 +56,8 @@ class _InputOptimizerBase:
         def evaluate_image(x):
             if len(x.shape) == 2:
                 x = np.expand_dims(x, axis=0)
-            x = torch.tensor(x, dtype=torch.float32, requires_grad=False, device=device)
-            y = operation(x).data.cpu().numpy()
+            x = tf.Variable(x, dtype=tf.float32)
+            y = operation(x)
             return y
 
         original_img_activations = []
@@ -115,8 +113,8 @@ class Gabor(_InputOptimizerBase):
     Fewer features but a simpler interface then MEI
     """
 
-    def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1, device='cpu'):
-        super().__init__(models, operation, shape, bias, scale, device)
+    def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1):
+        super().__init__(models, operation, shape, bias, scale)
         self.ranges: dict = config.gabor_ranges
         self.limits: list = config.gabor_limits
         self.set_ranges(height=[self.img_shape[-2]], width=[self.img_shape[-1]])
@@ -165,16 +163,15 @@ class Gabor(_InputOptimizerBase):
 
         # Evaluate all gabors
         activations = []
-        with torch.no_grad():
-            print('Evaluating gabors')
-            for i, gabor in tqdm(enumerate(gabor_loader)):
-                norm = (gabor["image"] - self.bias) / self.scale
-                img = torch.Tensor(norm).to(self.device)
-                img_activations = []
-                for op in operations:
-                    img_activations.append(op(img).cpu().numpy())
-                img_activations = np.squeeze(img_activations)
-                activations.append(img_activations)
+        print('Evaluating gabors')
+        for i, gabor in tqdm(enumerate(gabor_loader)):
+            norm = (gabor["image"] - self.bias) / self.scale
+            img = tf.Variable(norm)
+            img_activations = []
+            for op in operations:
+                img_activations.append(op(img))
+            img_activations = np.squeeze(img_activations)
+            activations.append(img_activations)
         activations = np.array(activations)
 
         if activations.ndim == 1:
@@ -186,7 +183,6 @@ class Gabor(_InputOptimizerBase):
                 operation=operations[0],
                 bias=self.bias,
                 scale=self.scale,
-                device=self.device,
                 activation=activations[best_idx],
                 phase=best_phase,
                 wavelength=best_wavelength,
@@ -209,7 +205,6 @@ class Gabor(_InputOptimizerBase):
                 operation=operations[neuron_id],
                 bias=self.bias,
                 scale=self.scale,
-                device=self.device,
                 activation=best_activation,
                 phase=best_phase,
                 wavelength=best_wavelength,
@@ -234,7 +229,6 @@ class Gabor(_InputOptimizerBase):
         bounds = self.limits * self.img_shape[0] if self.img_shape[0] > 1 else self.limits
 
         for op in operations:
-
             def neg_model_activation(params):
                 params = [np.clip(p, l, u) for p, (l, u) in zip(params, bounds)]
                 gabor = [self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
@@ -246,11 +240,9 @@ class Gabor(_InputOptimizerBase):
                          for channel in range(self.img_shape[0])]
                 gabor = np.stack(gabor, axis=0)
 
-                # Compute activation
-                with torch.no_grad():
-                    norm = (gabor - self.bias) / self.scale
-                    img = torch.Tensor(norm).to(self.device)
-                    activation = op(img).item()
+                norm = (gabor - self.bias) / self.scale
+                img = tf.Variable(norm)
+                activation = op(img)
 
                 return -activation
 
@@ -260,8 +252,7 @@ class Gabor(_InputOptimizerBase):
 
             # Find the best parameters (simulated annealing -> local search)
             for seed in tqdm([1, 12, 123, 1234, 12345]):  # try 5 diff random seeds
-                res = optimize.dual_annealing(neg_model_activation, bounds=bounds, no_local_search=True,
-                                              maxiter=300, seed=seed)
+                res = optimize.dual_annealing(neg_model_activation, bounds=bounds, no_local_search=True, maxiter=300, seed=seed)
                 res = optimize.minimize(neg_model_activation, x0=res.x, method='Nelder-Mead')
 
                 if res.fun < best_activation:
@@ -275,10 +266,10 @@ class Gabor(_InputOptimizerBase):
 
             # Create best gabor
             best_gabor = np.squeeze([self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
-                                            phase=best_params[6 * i], wavelength=best_params[6 * i + 1],
-                                            orientation=best_params[6 * i + 2], sigma=best_params[6 * i + 3],
-                                            dy=best_params[6 * i + 4], dx=best_params[6 * i + 5])
-                          for i in range(self.img_shape[0])])
+                                                       phase=best_params[6 * i], wavelength=best_params[6 * i + 1],
+                                                       orientation=best_params[6 * i + 2], sigma=best_params[6 * i + 3],
+                                                       dy=best_params[6 * i + 4], dx=best_params[6 * i + 5])
+                                    for i in range(self.img_shape[0])])
             best_activation = -neg_model_activation(best_params)
 
             processes.append(GaborProcess(seed=best_seed,
@@ -286,7 +277,6 @@ class Gabor(_InputOptimizerBase):
                                           image=best_gabor,
                                           bias=self.bias,
                                           scale=self.scale,
-                                          device=self.device,
                                           activation=best_activation,
                                           phase=[best_params[i] for i in range(self.img_shape[0])],
                                           wavelength=[best_params[i + 1] for i in range(self.img_shape[0])],

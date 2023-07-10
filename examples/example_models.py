@@ -1,3 +1,4 @@
+import keras
 import tensorflow as tf
 from keras import layers
 from keras.datasets import mnist, cifar10
@@ -40,7 +41,7 @@ def show_image_grid(images, texts=None, activations=None, grid_size=(4, 4), imag
 
 
 class _ExampleModel(tf.keras.Model):
-    def __init__(self, name='model', device='cpu', criterion=None, optimizer=None):
+    def __init__(self, name='model', criterion=None, optimizer=None):
         super(_ExampleModel, self).__init__(name=name)
         self.criterion = criterion
         self.optimizer = optimizer
@@ -74,14 +75,14 @@ class _ExampleModel(tf.keras.Model):
 
 
 class MNIST_model(_ExampleModel):
-    def __init__(self, name='model', device='cpu', load=False):
+    def __init__(self, name='model', load=False):
         super(MNIST_model, self).__init__(name=name)
         self.flatten = layers.Flatten()
         self.fc1 = layers.Dense(128, activation='relu')
         self.fc2 = layers.Dense(10, activation='softmax')
 
         self.criterion = tf.keras.losses.SparseCategoricalCrossentropy()
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+        self.optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=0.001)
 
         (train_images, train_labels), (test_images, test_labels) = mnist.load_data()
 
@@ -90,6 +91,9 @@ class MNIST_model(_ExampleModel):
 
         self.train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(128).shuffle(10000)
         self.test_dataset = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(128)
+
+        _ = self(keras.Input(shape=(1, 28, 28)))
+        self.compile(self.optimizer, self.criterion)
 
         if load:
             self.load()
@@ -102,7 +106,7 @@ class MNIST_model(_ExampleModel):
 
 
 class CIFAR_model(_ExampleModel):
-    def __init__(self, name='model', device='cuda', load=False, kernel_size=(3, 3)):
+    def __init__(self, name='model', load=False, kernel_size=(3, 3)):
         super(CIFAR_model, self).__init__(name=name)
         self.conv1 = layers.Conv2D(32, kernel_size, padding='same', activation='relu')
         self.bn1 = layers.BatchNormalization()
@@ -138,7 +142,7 @@ class CIFAR_model(_ExampleModel):
         self.fc2 = layers.Dense(10, activation='softmax')
 
         self.criterion = tf.keras.losses.SparseCategoricalCrossentropy()
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+        self.optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=0.001)
 
         (train_images, train_labels), (test_images, test_labels) = cifar10.load_data()
 
@@ -147,6 +151,9 @@ class CIFAR_model(_ExampleModel):
 
         self.train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(128).shuffle(10000)
         self.test_dataset = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(128)
+
+        _ = self(keras.Input(shape=(3, 32, 32)))
+        self.compile(self.optimizer, self.criterion)
 
         if load:
             self.load()

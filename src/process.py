@@ -1,4 +1,4 @@
-import torch
+import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
 from itertools import product
@@ -7,15 +7,15 @@ from .utils import roll, batch_std, fft_smooth, blur_in_place, mask_image
 
 
 class _Process:
-    def __init__(self, operation, image=None, bias=0, scale=1, device='cpu'):
-        self.device = device
+    def __init__(self, operation, image=None, bias=0, scale=1):
         self.bias = bias
         self.scale = scale
         self.image = image
         self.operation = operation
         self.neuron_query = None
 
-    def best_match(self, dataloader, mask=None, **MaskParams):
+    #TODO: batchek kihasználásával lehetne gyorsítani
+    def best_match(self, dataloader, mask=None,  **MaskParams):
         """
         Find the image that maximizes the activation of the operation
 
@@ -24,21 +24,22 @@ class _Process:
         :param MaskParams: The parameters of the specific mask
         :return: The activation and the image that maximizes the activation
         """
-        img_activations = []
-        for image, label in tqdm(dataloader.dataset):
-            image = mask_image(image, mask, self.bias, **MaskParams)
-            if len(image.shape) == 2:
-                image = np.expand_dims(image, axis=0)
-            if type(image) is not torch.Tensor:
-                image = torch.tensor(image, dtype=torch.float32, requires_grad=True, device=self.device)
-            else:
-                image.requires_grad = True
-            y = self.operation(image)
-            img_activations.append(y.item())
 
-        img_activations = np.array(img_activations)
-        pos = np.argmax(img_activations)
-        return img_activations[pos], dataloader.dataset[pos][0].squeeze(0)
+        best_image = None
+        best_activation = -np.inf
+        for image_batch, _ in tqdm(dataloader):
+            for image in image_batch:
+                image = mask_image(image, mask, self.bias, **MaskParams)
+                if len(image.shape) == 2:
+                    image = np.expand_dims(image, axis=0)
+                if type(image) is not tf.Variable:
+                    image = tf.Variable(image)
+                y = self.operation(image)
+                if y > best_activation:
+                    best_activation = y
+                    best_image = image
+
+        return best_activation, best_image
 
     def masked(self, mask, **MaskParams):
         """
@@ -85,14 +86,12 @@ class _Process:
 
         jiterred_images = []
 
-        with torch.no_grad():
-            img = torch.Tensor(self.image).to(self.device)
-
-            for (iy, jitter_y), (ix, jitter_x) in product(shift, shift):
-                jitter_y, jitter_x = int(jitter_y), int(jitter_x)
-                jittered_img = roll(roll(img, jitter_y, -2), jitter_x, -1)
-                jiterred_images.append(jittered_img)
-                activations[iy, ix] = self.operation(jittered_img).data.cpu().numpy()
+        img = tf.Variable(self.image)
+        for (iy, jitter_y), (ix, jitter_x) in product(shift, shift):
+            jitter_y, jitter_x = int(jitter_y), int(jitter_x)
+            jittered_img = roll(roll(img, jitter_y, -2), jitter_x, -1)
+            jiterred_images.append(jittered_img)
+            activations[iy, ix] = self.operation(jittered_img).numpy()
 
         return activations, jiterred_images
 
@@ -110,9 +109,8 @@ class _Process:
 
         shifted_mei = np.roll(np.roll(self.image, x_shift, 1), y_shift, 0)
 
-        with torch.no_grad():
-            shifted_mei = torch.Tensor(shifted_mei).to(self.device)
-            activations = self.operation(shifted_mei).data.cpu().numpy()
+        shifted_mei = tf.Variable(shifted_mei)
+        activations = self.operation(shifted_mei).numpy()
 
         return activations, shifted_mei
 
@@ -126,8 +124,8 @@ class _Process:
 
 
 class GaborProcess(_Process):
-    def __init__(self, operation=None, image= None, bias=0, scale=1, device='cpu', **GaborParams):
-        super().__init__(operation=operation, image=image, bias=bias, scale=scale, device=device)
+    def __init__(self, operation=None, image= None, bias=0, scale=1, **GaborParams):
+        super().__init__(operation=operation, image=image, bias=bias, scale=scale)
 
         self.seed = GaborParams['seed'] if 'seed' in GaborParams else None
         self.activation = GaborParams['activation'] if 'activation' in GaborParams else None
@@ -150,8 +148,8 @@ class GaborProcess(_Process):
 
 # TODO: add support for multiple octaves
 class MEIProcess(_Process):
-    def __init__(self, operation, bias=0, scale=1, device='cpu', **MEIParams):
-        super().__init__(operation, bias=bias, scale=scale, device=device)
+    def __init__(self, operation, bias=0, scale=1, **MEIParams):
+        super().__init__(operation, bias=bias, scale=scale)
 
         # result parameters
         self.activation = None
@@ -201,71 +199,54 @@ class MEIProcess(_Process):
         """
         Update src in place making a gradient ascent step in the output of net.
 
-        :param src: Image(s) to updata
+        :param src: Image(s) to update
         :param step_size: Step size to use for the update: (im_old += step_size * grad)
-        :param sigma: Standard deviation for gaussian smoothing (if used, see blur).
+        :param sigma: Standard deviation for Gaussian smoothing (if used, see blur).
         :param eps: Small value to avoid division by zero.
         :param add_loss: An additional term to add to the network activation before
-                            calling backward on it. Usually, some regularization.
+                         calling backward on it. Usually, some regularization.
         """
-
-        if src.grad is not None:
-            src.grad.zero_()
 
         # apply jitter shift
         if self.jitter > 0:
-            ox, oy = np.random.randint(-self.jitter, self.jitter + 1, 2)  # use uniform distribution
+            ox, oy = np.random.randint(-self.jitter, self.jitter + 1, 2)
             ox, oy = int(ox), int(oy)
-            src.data = roll(roll(src.data, ox, -1), oy, -2)
+            src = roll(roll(src, ox, -1), oy, -2)
 
         img = src
+
         if self.train_norm is not None and self.train_norm > 0.0:
             # normalize the image in backpropagatable manner
-            img_idx = batch_std(src.data) + eps > self.train_norm / self.scale  # images to update
+            img_idx = batch_std(src) + eps > self.train_norm / self.scale  # images to update
             if img_idx.any():
                 img = src.clone()  # avoids overwriting original image but lets gradient through
                 img[img_idx] = ((src[img_idx] / (batch_std(src[img_idx], keepdim=True) +
                                                  eps)) * (self.train_norm / self.scale))
 
-        y = self.operation(img)
-        (y.mean() + add_loss).backward()
+        with tf.GradientTape() as tape:
+            tape.watch(src)
+            y = self.operation(img)
+            loss = tf.reduce_mean(y) + add_loss
 
-        grad = src.grad
+        grad = tape.gradient(loss, src)
         if self.precond > 0:
             grad = fft_smooth(grad, self.precond)
 
-        # src.data += (step_size / (batch_mean(torch.abs(grad.data), keepdim=True) + eps)) * (step_gain / 255) * grad.data
-        a = step_size / (torch.abs(grad.data).mean() + eps)
-        b = self.step_gain * grad.data  # itt (step gain -255) volt az egyik szorzó
-        src.data += a * b
-        # * both versions are equivalent for a single-image batch, for batches with more than
-        # one image the first one is better but it drawns out the gradients that are spatially
-        # wide; for instance a gradient of size 5 x 5 pixels all at amplitude 1 will produce a
-        # higher change in an image of the batch than a gradient of size 20 x 20 all at
-        # amplitude 1 in another. This is alright in most cases, but when generating diverse
-        # images with min linkage (i.e, all images receive gradient from the signal and two
-        # get the gradient from the diversity term) it drawns out the gradient generated from
-        # the diversity term (because it is usually bigger spatially than the signal gradient)
-        # and becomes hard to find very diverse images (i.e., increasing the diversity term
-        # has no effect because the diversity gradient gets rescaled down to smaller values
-        # than the signal gradient)
-        # In any way, gradient mean is only used as normalization here and using the mean is
-        # alright (also image generation works normally).
+        a = step_size / (tf.reduce_mean(tf.abs(grad)) + eps)
+        b = self.step_gain * grad
+        src.assign(src + a * b)
 
-        # print(src.data.std() * scale)
         if self.norm is not None and self.norm > 0.0:
-            data_idx = batch_std(src.data) + eps > self.norm / self.scale
-            src.data[data_idx] = (src.data / (batch_std(src.data, keepdim=True) + eps) * self.norm / self.scale)[
-                data_idx]
-
+            data_idx = batch_std(src) + eps > self.norm / self.scale
+            src[data_idx].assign((src / (batch_std(src, keepdim=True) + eps) * self.norm / self.scale)[
+                data_idx])
         if self.jitter > 0:
             # undo the shift
-            src.data = roll(roll(src.data, -ox, -1), -oy, -2)
-
+            src.assign(roll(roll(src, -ox, -1), -oy, -2))
         if self.clip:
-            src.data = torch.clamp(src.data, -self.bias / self.scale, (1 - self.bias) / self.scale)
-
+            src.assign(tf.clip_by_value(src, -self.bias / self.scale, (1 - self.bias) / self.scale))
         if self.blur:
-            blur_in_place(src.data, sigma)
+            blur_in_place(src, sigma)
+
 
 

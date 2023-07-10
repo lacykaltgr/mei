@@ -1,4 +1,4 @@
-import torch
+import tensorflow as tf
 import numpy as np
 from numpy.linalg import inv, cholesky
 import warnings
@@ -52,8 +52,8 @@ def mei_mask(img, delta_thr=0.5, size_thr=50, expansion_sigma=3, expansion_thr=0
     :param filter_sigma: The sigma for the filter
     :return: The mask
     """
-    img = img.squeeze()
-    delta = img - img.mean()
+    img = tf.squeeze(img)
+    delta = img - tf.reduce_mean(img)
     mask = np.abs(delta) > delta_thr
     # remove small lobes - likely an artifact
     mask = remove_small_area(mask, size_threshold=size_thr)
@@ -66,33 +66,31 @@ def mei_mask(img, delta_thr=0.5, size_thr=50, expansion_sigma=3, expansion_thr=0
     return mask
 
 
-def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, target_reduction_ratio=0.9):
+def mei_tight_mask(img, operation, stdev_size_thr=1, filter_sigma=1, target_reduction_ratio=0.9):
     """
     Create a tight mask for the MEI image
 
     :param img: The image
     :param operation: The operation of the MEI
-    :param device: The device
     :param stdev_size_thr: The threshold for the standard deviation
     :param filter_sigma: The sigma for the filter
     :param target_reduction_ratio: The target reduction ratio
     :return: The mask, the reduction ratio
     """
     def get_activation(mei):
-        with torch.no_grad():
-            img = torch.Tensor(mei).to(device)
-            activation = operation(img).data.cpu().numpy()
+        img = tf.Variable(mei)
+        activation = operation(img).numpy()
         return activation
 
     img = img.squeeze()
-    delta = img - img.mean()
+    delta = img - tf.reduce_mean(img)
     fluc = np.abs(delta)
     thr = np.std(fluc) * stdev_size_thr
 
     # original mask
     mask = convex_hull_image((fluc > thr).astype(float))
     fm = gaussian_filter(mask.astype(float), sigma=filter_sigma)
-    masked_img = fm * img + (1 - fm) * img.mean()
+    masked_img = fm * img + (1 - fm) * tf.reduce_mean(img)
     activation = base_line = get_activation(masked_img)
 
     #TODO: fix for multiple channels
@@ -103,7 +101,7 @@ def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, tar
         selem[selem_size//2] = 1
         mask = binary_erosion(mask, selem)
         fm = gaussian_filter(mask.astype(float), sigma=filter_sigma)
-        masked_img = fm * img + (1 - fm) * img.mean()
+        masked_img = fm * img + (1 - fm) * tf.reduce_mean(img)
         activation = get_activation(masked_img)
         count += 1
 
@@ -115,7 +113,7 @@ def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, tar
     return fm, reduction_ratio
 
 
-def mask_image(img, mask='gaussian', background=0, operation=lambda x: x, device='cpu', **MaskParams):
+def mask_image(img, mask='gaussian', background=0, operation=lambda x: x, **MaskParams):
     """
     Applies the mask `mask` onto the `img`. The completely masked area is then
     replaced with the value `background`.
@@ -124,7 +122,6 @@ def mask_image(img, mask='gaussian', background=0, operation=lambda x: x, device
     :param mask: type of mask to be applied
     :param background: value to be used for the masked area
     :param operation: operation to be applied on the masked image
-    :param device: device to be used for the operation
     :param MaskParams: parameters for the mask
     :return: masked image
     """
@@ -136,7 +133,7 @@ def mask_image(img, mask='gaussian', background=0, operation=lambda x: x, device
     elif mask == 'mei':
         _mask = mei_mask(img, **MaskParams)
     elif mask == 'mei_tight':
-        _mask, _ = mei_tight_mask(img, operation, device, **MaskParams)
+        _mask, _ = mei_tight_mask(img, operation, **MaskParams)
     else:
         raise ValueError(f'Unknown mask type: {mask}')
 
@@ -154,13 +151,13 @@ def fft_smooth(grad, factor=1/4):
     """
     if factor == 0:
         return grad
-    h, w = grad.size()[-2:]
+    h, w = grad.shape[-2:]
     tw = np.minimum(np.arange(0, w), np.arange(w-1, -1, -1), dtype=np.float32)  # [-(w+2)//2:]
     th = np.minimum(np.arange(0, h), np.arange(h-1, -1, -1), dtype=np.float32)
     t = 1 / np.maximum(1.0, (tw[None, :] ** 2 + th[:, None] ** 2) ** factor)
-    F = grad.new_tensor(t / t.mean()).unsqueeze(-1)
-    pp = torch.fft.rfft(grad.data, 2)
-    return torch.fft.irfft(pp * F, 2)
+    F = tf.convert_to_tensor(t / tf.reduce_mean(t))
+    pp = tf.signal.rfft(grad.numpy(), fft_length=2)
+    return tf.signal.irfft(pp * tf.expand_dims(F, -1), fft_length=2)
 
 
 def blur(img, sigma):
@@ -185,8 +182,8 @@ def blur_in_place(tensor, sigma):
     :param sigma: The sigma of the blur
     :return: The blurred image
     """
-    blurred = np.stack([blur(im, sigma) for im in tensor.cpu().numpy()])
-    tensor.copy_(torch.Tensor(blurred))
+    blurred = np.stack([blur(im, sigma) for im in tensor.numpy()])
+    tensor.assign(blurred)
 
 
 def roll(tensor, shift, axis):
@@ -212,12 +209,12 @@ def roll(tensor, shift, axis):
 
     before = tensor.narrow(axis, 0, dim_size - shift)
     after = tensor.narrow(axis, after_start, shift)
-    return torch.cat([after, before], axis)
+    return tf.Variable(tf.concat([after, before], axis=axis))
 
 
 def batch_mean(batch, keepdim=False):
     """ Compute mean for a batch of images. """
-    mean = batch.view(len(batch), -1).mean(-1)
+    mean = tf.reduce_mean(batch.view(len(batch), -1), -1)
     if keepdim:
         mean = mean.view(len(batch), 1, 1, 1)
     return mean
@@ -246,7 +243,7 @@ def gauss2d(vx, vy, mu, cov):
     v = np.stack([vx.ravel() - mu_x, vy.ravel() - mu_y])
     cinv = inv(cholesky(cov))
     y = cinv @ v
-    g = np.exp(-0.5 * (y * y).sum(axis=0))
+    g = np.exp(-0.5 * tf.reduce_sum(y * y, axis=0))
     return g.reshape(input_shape)
 
 
@@ -259,16 +256,16 @@ def fit_gauss_envelope(img):
     """
     # scale down the image to 2 dimensions
     while len(img.shape) > 2:
-        img = img.mean(axis=0)
+        img = tf.reduce_mean(img, axis=0)
     vx, vy = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
-    rect = (img - img.mean()) ** 2
-    pdf = rect / rect.sum()
-    mu_x = (vx * pdf).sum()
-    mu_y = (vy * pdf).sum()
+    rect = (img - tf.reduce_mean(img)) ** 2
+    pdf = rect / tf.reduce_sum(rect)
+    mu_x = tf.reduce_sum(vx * pdf)
+    mu_y = tf.reduce_sum(vy * pdf)
 
-    cov_xy = (vx * vy * pdf).sum() - mu_x * mu_y
-    cov_xx = (vx ** 2 * pdf).sum() - mu_x ** 2
-    cov_yy = (vy ** 2 * pdf).sum() - mu_y ** 2
+    cov_xy = tf.reduce_sum(vx * vy * pdf) - mu_x * mu_y
+    cov_xx = tf.reduce_sum(vx ** 2 * pdf) - mu_x ** 2
+    cov_yy = tf.reduce_sum(vy ** 2 * pdf) - mu_y ** 2
 
     cov = np.array([[cov_xx, cov_xy], [cov_xy, cov_yy]])
 
@@ -295,7 +292,7 @@ def remove_small_area(mask, size_threshold=50):
     return mask_mod
 
 
-def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_lim=False, device='cpu'):
+def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_lim=False):
     """
     Computes the contrast tuning curve for the given image and model.
 
@@ -305,16 +302,15 @@ def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_
     :param n: The number of points to use
     :param linear: Whether to use linearly spaced points
     :param use_max_lim: Whether to use the maximum possible contrast without clipping
-    :param device: The device to use
     :return: The contrast tuning curve
     """
-    mu = img.mean()
-    delta = img - img.mean()
-    vmax = delta.max()
-    vmin = delta.min()
+    mu = tf.reduce_mean(img)
+    delta = img - tf.reduce_mean(img)
+    vmax = tf.reduce_max(delta)
+    vmin = tf.reduce_min(delta)
 
-    min_pdist = delta[delta > 0].min()
-    min_ndist = (-delta[delta < 0]).min()
+    min_pdist = tf.reduce_min(delta[delta > 0])
+    min_ndist = tf.reduce_min(-delta[delta < 0])
 
     max_lim_gain = max((1 - mu) / min_pdist, mu / min_ndist)
 
@@ -325,9 +321,8 @@ def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_
     max_gain = min((1 - mu) / vmax, -mu / vmin)
 
     def run(x):
-        with torch.no_grad():
-            img = torch.Tensor(x).to(device)
-            result = model(img)
+        img = tf.Variable(x)
+        result = model(img)
         return result
 
     target = max_lim_gain if use_max_lim else max_gain
@@ -343,7 +338,7 @@ def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_
         img = delta * g + mu
         img = np.clip(img, 0, 1)
         c = img.std()
-        v = run(img).data.cpu().numpy()
+        v = run(img).numpy()
         cont.append(c)
         vals.append(v)
 
@@ -374,7 +369,7 @@ def adjust_img_stats(img, mu, sigma, img_min=0, img_max=255, mask=None, max_gain
         mask = np.ones_like(img)
     mimg = img * mask
 
-    delta = img - mimg.sum() / mask.sum()
+    delta = img - tf.reduce_sum(mimg) / tf.reduce_sum(mask)
 
     def get_image(delta, offset=0):
         return np.clip((delta * mask) + mu + offset, img_min, img_max)
@@ -402,7 +397,7 @@ def adjust_img_stats(img, mu, sigma, img_min=0, img_max=255, mask=None, max_gain
             if verbose:
                 print('Trying gain', gain)
             adj_images = get_image(delta * gain, v)
-            pos = np.argmin(np.abs(adj_images.mean(axis=(1, 2)) - mu))
+            pos = np.argmin(np.abs(tf.reduce_mean(adj_images, axis=(1, 2)) - mu))
             img = adj_images[pos]
             unmasked_img = np.clip(delta * gain + mu + v[pos], img_min, img_max)
 
@@ -422,7 +417,7 @@ def adjust_img_stats(img, mu, sigma, img_min=0, img_max=255, mask=None, max_gain
         img = imgs[pos]
         unmasked_img = unmasked_imgs[pos]
     if verbose:
-        print('Selected version with mu={} and std={}'.format(img.mean(), img.std()))
+        print(f'Selected version with mu={tf.reduce_mean(img)} and std={img.std()}')
     return img, unmasked_img
 
 
@@ -459,19 +454,19 @@ def adjust_contrast(img, contrast=-1, mu=-1, img_min=0, img_max=255, force=True,
         else:
             gain = contrast / current_contrast
 
-        delta = img - img.mean()
+        delta = img - tf.reduce_mean(img)
         if mu is None or mu < 0: # no adjustment of mean
-            mu = img.mean()
+            mu = tf.reduce_mean(img)
 
-        min_pdist = delta[delta > 0].min()
-        min_ndist = (-delta[delta < 0]).min()
+        min_pdist = tf.reduce_min(delta[delta > 0])
+        min_ndist = tf.reduce_min(-delta[delta < 0])
 
         # point beyond which scaling would completely saturate out the image (e.g. all pixels would be completely
         # black or white)
         max_lim_gain = max((img_max - mu) / min_pdist, (mu - img_min) / min_ndist)
 
-        vmax = delta.max()
-        vmin = delta.min()
+        vmax = tf.reduce_max(delta)
+        vmin = tf.reduce_min(delta)
 
         # maximum gain that could be used without losing image information
         max_gain = min((img_max - mu) / vmax, (img_min-mu) / vmin)
@@ -491,25 +486,25 @@ def adjust_contrast(img, contrast=-1, mu=-1, img_min=0, img_max=255, force=True,
             for g in gains:
                 img = delta * g + mu
                 img = np.clip(img, img_min, img_max)
-                offset = img.mean() - mu # shift in clipped image mean caused by the clipping
+                offset = tf.reduce_mean(img)- mu # shift in clipped image mean caused by the clipping
                 if offset < 0: # pixel values needs to be raised
                     offset = -offset
                     mask = (img_max-img < v[:, None, None])
-                    nlow = mask.sum(axis=(1, 2)) # pixels that are closer to the bound than v
+                    nlow = tf.reduce_sum(mask, axis=(1, 2)) # pixels that are closer to the bound than v
                     nhigh = img.size - nlow
                     # calculate the actual shift in mean that can be achieved by shifting all pixels by v
                     # then clipping
-                    va = ((mask * (img_max-img)).sum(axis=(1, 2)) + v * nhigh) / (nlow + nhigh)
+                    va = (tf.reduce_sum(mask * (img_max-img),axis=(1, 2)) + v * nhigh) / (nlow + nhigh)
 
                     # find the best candidate offset that achieves closest to the desired shift in the mean
                     pos = np.argmin(np.abs(va - offset))
                     actual_offset = -v[pos]
                 else:
                     mask = (img-img_min < v[:, None, None])
-                    nlow = mask.sum(axis=(1, 2))
+                    nlow = tf.reduce_sum(mask, axis=(1, 2))
                     nhigh = img.size - nlow
                     # actual shift in mean that can be achieved by shifting all pixels by v
-                    va = ((mask * (img-img_min)).sum(axis=(1, 2)) + v * nhigh) / (nlow + nhigh)
+                    va = (tf.reduce_sum(mask * (img-img_min), axis=(1, 2)) + v * nhigh) / (nlow + nhigh)
                     pos = np.argmin(np.abs(va - offset))
                     actual_offset = v[pos]
 
@@ -575,7 +570,7 @@ def adjust_contrast_with_mask(img, img_mask=None, contrast=-1, mu=-1, img_min=0,
         adj_img = img * img_mask + mu * (1 - img_mask) #adj_img volt
         adj_img = np.clip(adj_img, img_min, img_max)
         mimg = img_mask * img
-        test_img = np.clip(mimg - mimg.mean() + mu, img_min, img_max)
+        test_img = np.clip(mimg - tf.reduce_mean(mimg) + mu, img_min, img_max)
         current_contrast = test_img.std()
         if verbose:
             print('Initial contrast:', current_contrast)
@@ -589,15 +584,15 @@ def adjust_contrast_with_mask(img, img_mask=None, contrast=-1, mu=-1, img_min=0,
         if mu is None or mu < 0:  # no adjustment of mean
             mu = get_mu(img)
 
-        min_pdist = delta[delta > 0].min()
-        min_ndist = (-delta[delta < 0]).min()
+        min_pdist = tf.reduce_min(delta[delta > 0])
+        min_ndist = tf.reduce_min(-delta[delta < 0])
 
         # point beyond which scaling would completely saturate out the image (e.g. all pixels would be completely black or
         # white)
         max_lim_gain = min(max((img_max - mu) / min_pdist, (mu - img_min) / min_ndist), 100)
 
-        vmax = (delta * img_mask).max()
-        vmin = (delta * img_mask).min()
+        vmax = tf.reduce_min(delta * img_mask)
+        vmin = tf.reduce_min(delta * img_mask)
 
         # maximum gain that could be used without losing image information
         max_gain = min((img_max - mu) / vmax, (img_min - mu) / vmin)
@@ -633,13 +628,13 @@ def adjust_contrast_with_mask(img, img_mask=None, contrast=-1, mu=-1, img_min=0,
                 offset = sign * offset
                 mask = (sign * (edge - img) < v[:, None, None])
 
-                nlow = (mask * img_mask).sum(axis=(1, 2))  # effective number of pixels that are closer to the bound than v
-                nhigh = img_mask.sum() - nlow
+                nlow = tf.reduce_sum(mask * img_mask, axis=(1, 2))  # effective number of pixels that are closer to the bound than v
+                nhigh = tf.reduce_sum(img_mask) - nlow
 
                 # calculate the actual shift in mean that can be achieved by shifting all pixels by v
                 # then clipping
-                va = ((mask * img_mask * sign * (edge - img)).sum(axis=(1, 2)) + (
-                        v[:, None, None] * img_mask * (1 - mask)).sum(axis=(1, 2))) / (nlow + nhigh)
+                va = (tf.reduce_sum(mask * img_mask * sign * (edge - img), axis=(1, 2)) + tf.reduce_sum(
+                        v[:, None, None] * img_mask * (1 - mask), axis=(1, 2))) / (nlow + nhigh)
 
                 # find the best candidate offset that achieves closest to the desired shift in the mean
                 pos = np.argmin(np.abs(va - offset))
