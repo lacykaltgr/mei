@@ -43,7 +43,10 @@ def adj_model(models, neuron_query, input_shape=None):
     else:
         raise ValueError("Invalid neuron query")
 
-    return [operation(models, query_fn)]
+    return [operation(models, query_fn)], [query_fn]
+
+
+
 
 
 def query(x, query):
@@ -77,15 +80,18 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
     :param condition: The condition that must be met for the neuron to be taken into account
     :return: The list of operations based on the models and the query condition
     """
-    size = tensor.shape
+    size = tf.squeeze(tensor).shape
     operations = []
+    query_fns = []
 
     def recursive_iterate(elements, indices):
         if len(indices) == len(size):
             # add operation if condition is met
             if condition(indices):
                 current_indices = indices.copy()
-                operations.append(operation(models, lambda x: query(x, current_indices)))
+                query_fn = lambda x: query(x, current_indices)
+                query_fns.append(query_fn)
+                operations.append(operation(models, query_fn))
         else:
             dim_size = size[len(indices)]
             for i in range(dim_size):
@@ -94,7 +100,7 @@ def iterate_all_neurons(tensor, models, condition=lambda x: True):
                 indices.pop()
 
     recursive_iterate(tensor, [])
-    return operations
+    return operations, query_fns
 
 
 def operation(models, query_fn):

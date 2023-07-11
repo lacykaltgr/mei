@@ -11,6 +11,7 @@ class MEI(Gabor):
     """
     Class for generating more complex optimized inputs
     """
+
     def __init__(self, models=None, operation=None, shape=(1, 28, 28), bias=0, scale=1):
         super().__init__(models, operation, shape, bias, scale)
 
@@ -24,8 +25,8 @@ class MEI(Gabor):
         """
 
         processes = []
-        for op in self.get_operations(neuron_query):
-            process = MEIProcess(op, bias=self.bias, scale=self.scale, **MEIParams)
+        for op, query in zip(*self.get_operations(neuron_query)):
+            process = MEIProcess(op, query_fn=query, bias=self.bias, scale=self.scale, **MEIParams)
 
             # generate initial random image
             background_color = np.float32([self.bias] * self.img_shape[-1])
@@ -51,7 +52,7 @@ class MEI(Gabor):
             process.lim_contrast = lim_contrast
             processes.append(process)
 
-        return processes if len(processes) > 1 else processes[0]
+        return processes if len(processes) != 1 or processes is None else processes[0]
 
     def gradient_rf(self, neuron_query=None, **MEIParams):
         """
@@ -63,9 +64,8 @@ class MEI(Gabor):
         """
 
         processes = []
-        for op in self.get_operations(neuron_query):
-
-            X = tf.zeros((1, ) + self.img_shape, dtype=tf.float64)
+        for op, query in zip(*self.get_operations(neuron_query)):
+            X = tf.zeros((1,) + self.img_shape if self.img_shape[0] != 1 else self.img_shape, dtype=tf.float64)
             with tf.GradientTape() as tape:
                 tape.watch(X)
                 y = op(X)
@@ -76,7 +76,7 @@ class MEI(Gabor):
             def linear_model(x):
                 return tf.reduce_sum(x * rf)
 
-            process = MEIProcess(linear_model, bias=self.bias, scale=self.scale, **MEIParams)
+            process = MEIProcess(linear_model, query_fn=query, bias=self.bias, scale=self.scale, **MEIParams)
 
             # generate initial random image
             background_color = np.float32([self.bias] * self.img_shape[-1])
@@ -157,8 +157,3 @@ class MEI(Gabor):
                 image[:, ox:ox + w, oy:oy + h] = src.numpy()
 
         return image
-
-
-
-
-

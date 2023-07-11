@@ -1,4 +1,6 @@
 data/
 examples/data/
+examples/tdVAE/
+examples/example_tdvae.ipynb
 __pycache__/
 .idea/

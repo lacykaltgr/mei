@@ -7,11 +7,12 @@ from .utils import roll, batch_std, fft_smooth, blur_in_place, mask_image
 
 
 class _Process:
-    def __init__(self, operation, image=None, bias=0, scale=1):
+    def __init__(self, operation, query_fn, image=None, bias=0, scale=1):
         self.bias = bias
         self.scale = scale
         self.image = image
         self.operation = operation
+        self.query_fn = query_fn
         self.neuron_query = None
 
     #TODO: batchek kihasználásával lehetne gyorsítani
@@ -124,8 +125,8 @@ class _Process:
 
 
 class GaborProcess(_Process):
-    def __init__(self, operation=None, image= None, bias=0, scale=1, **GaborParams):
-        super().__init__(operation=operation, image=image, bias=bias, scale=scale)
+    def __init__(self, operation=None, query_fn=None, image=None, bias=0, scale=1, **GaborParams):
+        super().__init__(operation=operation, query_fn=query_fn, image=image, bias=bias, scale=scale)
 
         self.seed = GaborParams['seed'] if 'seed' in GaborParams else None
         self.activation = GaborParams['activation'] if 'activation' in GaborParams else None
@@ -148,8 +149,8 @@ class GaborProcess(_Process):
 
 # TODO: add support for multiple octaves
 class MEIProcess(_Process):
-    def __init__(self, operation, bias=0, scale=1, **MEIParams):
-        super().__init__(operation, bias=bias, scale=scale)
+    def __init__(self, operation, query_fn=None, bias=0, scale=1, **MEIParams):
+        super().__init__(operation, query_fn=query_fn,  bias=bias, scale=scale)
 
         # result parameters
         self.activation = None

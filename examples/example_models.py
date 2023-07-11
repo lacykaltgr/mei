@@ -1,4 +1,5 @@
 import keras
+import numpy as np
 import tensorflow as tf
 from keras import layers
 from keras.datasets import mnist, cifar10
@@ -112,24 +113,24 @@ class CIFAR_model(_ExampleModel):
         self.bn1 = layers.BatchNormalization()
         self.conv2 = layers.Conv2D(32, kernel_size, padding='same', activation='relu')
         self.bn2 = layers.BatchNormalization()
-        self.maxpool1 = layers.MaxPooling2D(pool_size=(2, 2))
+        self.maxpool1 = layers.MaxPooling2D((2, 2), padding='same')
         self.dropout1 = layers.Dropout(0.25)
 
         self.conv3 = layers.Conv2D(64, kernel_size, padding='same', activation='relu')
         self.bn3 = layers.BatchNormalization()
         self.conv4 = layers.Conv2D(64, kernel_size, padding='same', activation='relu')
         self.bn4 = layers.BatchNormalization()
-        self.maxpool2 = layers.MaxPooling2D(pool_size=(2, 2))
+        self.maxpool2 = layers.MaxPooling2D((2,2), padding='same')
         self.dropout2 = layers.Dropout(0.25)
 
         self.conv5 = layers.Conv2D(128, kernel_size, padding='same', activation='relu')
         self.bn5 = layers.BatchNormalization()
         self.conv6 = layers.Conv2D(128, kernel_size, padding='same', activation='relu')
         self.bn6 = layers.BatchNormalization()
-        self.maxpool3 = layers.MaxPooling2D(pool_size=(2, 2))
+        self.maxpool3 = layers.MaxPooling2D((2,2), padding='same')
 
         self.groupnorm = layers.LayerNormalization()
-        self.activation = tf.keras.activations.silu
+        self.activation = tf.keras.activations.selu
         self.zeropad1 = layers.ZeroPadding2D(padding=(1, 1))
         self.conv7 = layers.Conv2D(16, 3, strides=1)
         self.zeropad2 = layers.ZeroPadding2D(padding=(1, 1))
@@ -146,8 +147,9 @@ class CIFAR_model(_ExampleModel):
 
         (train_images, train_labels), (test_images, test_labels) = cifar10.load_data()
 
-        train_images = train_images / 255.0
-        test_images = test_images / 255.0
+        import numpy as np
+        train_images = np.transpose(train_images/255.0, (0, 3, 1, 2))
+        test_images = np.transpose(test_images/255.0, (0, 3, 1, 2))
 
         self.train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(128).shuffle(10000)
         self.test_dataset = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(128)
@@ -194,3 +196,84 @@ class CIFAR_model(_ExampleModel):
         x = self.fc2(x)
 
         return x
+
+
+class MNIST_autoencoder(_ExampleModel):
+    def __init__(self, name='model', load=False):
+        super(MNIST_autoencoder, self).__init__(name=name)
+
+        self.encoder = keras.Sequential([
+            layers.Flatten(input_shape = (28, 28)),
+            layers.Dense(512),
+            layers.LeakyReLU(),
+            layers.Dropout(0.5),
+            layers.Dense(256),
+            layers.LeakyReLU(),
+            layers.Dropout(0.5),
+            layers.Dense(128),
+            layers.LeakyReLU(),
+            layers.Dropout(0.5),
+            layers.Dense(64),
+            layers.LeakyReLU(),
+            layers.Dropout(0.5),
+            layers.Dense(32),
+            layers.LeakyReLU(),
+            layers.Reshape((4, 8))
+        ])
+
+        self.decoder = keras.Sequential([
+            layers.Flatten(input_shape=(4, 8)),
+            layers.Dense(64),
+            layers.LeakyReLU(),
+            layers.Dropout(0.5),
+            layers.Dense(128),
+            layers.LeakyReLU(),
+            layers.Dropout(0.5),
+            layers.Dense(256),
+            layers.LeakyReLU(),
+            layers.Dropout(0.5),
+            layers.Dense(512),
+            layers.LeakyReLU(),
+            layers.Dropout(0.5),
+            layers.Dense(784),
+            layers.Activation("sigmoid"),
+            layers.Reshape((28, 28))
+        ])
+
+        self.optimizer = keras.optimizers.legacy.Adam(learning_rate=0.001)
+        self.criterion = tf.keras.losses.MeanSquaredError()
+
+        (train_images, _), (test_images, _) = mnist.load_data()
+        train_images = train_images/255.0
+        test_images =  test_images/255.0
+
+        train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_images)).batch(128).shuffle(60000)
+        test_dataset = tf.data.Dataset.from_tensor_slices((test_images, test_images)).batch(128)
+
+        self.train_loader = train_dataset
+        self.test_loader = test_dataset
+
+        _ = self(keras.Input(shape=(28, 28)))
+        self.compile(self.optimizer, self.criterion)
+
+        if load:
+            self.load()
+
+    def call(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
+
+    def encode(self, x):
+        return self.encoder(x)
+
+    def decode(self, x):
+        return self.decoder(x)
+
+    def train(self, epochs=10):
+        history = self.fit(self.train_loader, epochs=epochs, validation_data=self.test_loader)
+        return history
+
+    def eval(self):
+        self.evaluate(self.test_loader)
+

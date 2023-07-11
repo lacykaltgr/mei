@@ -460,34 +460,36 @@ def run_training(
   """
 
     # Params that change very rarely.
-    tb_save_graph = False
-
+    #tb_save_graph = False
     # Set up logging
-    os.makedirs(save_dir, exist_ok=True)
-    from imp import reload  # reinit logging so that logging.basicConfig works
-    reload(logging)
-    logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s',
-                        level=logging.INFO,
-                        filename=save_dir + '/run.log')
-    f_train = open(save_dir + '/train_stats.csv', 'a')
-    f_train.write('epoch,elbo,reconstr,kl_z1,kl_z2,beta_z1,beta_z2,gr_norm,ch_norm,out_sd\n')
-    f_test = open(save_dir + '/test_stats.csv', 'a')
-    f_test.write('epoch,elbo,reconstr,kl_z1,kl_z2,beta_z1,beta_z2,out_sd\n')
+    #os.makedirs(save_dir, exist_ok=True)
+    #from imp import reload  # reinit logging so that logging.basicConfig works
+    #reload(logging)
+    #logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s',
+    #                    level=logging.INFO,
+    #                    filename=save_dir + '/run.log')
+    #f_train = open(save_dir + '/train_stats.csv', 'a')
+    #f_train.write('epoch,elbo,reconstr,kl_z1,kl_z2,beta_z1,beta_z2,gr_norm,ch_norm,out_sd\n')
+    #f_test = open(save_dir + '/test_stats.csv', 'a')
+    #f_test.write('epoch,elbo,reconstr,kl_z1,kl_z2,beta_z1,beta_z2,out_sd\n')
 
     # Log training params
-    params = locals()
-    logging.info('Training params: {}'.format(params))
+    #params = locals()
+    #logging.info('Training params: {}'.format(params))
 
     # Set tf and np random seeds.
-    if isinstance(random_seed, int):
-        logging.info('Seeding TensorFlow and NumPy RNGs with %d.', random_seed)
-        tf.random.set_seed(random_seed)
-        np.random.seed(random_seed)
-    else:
-        logging.info('TensorFlow and NumPy RNGs use default seeds.')
+    #if isinstance(random_seed, int):
+    #    logging.info('Seeding TensorFlow and NumPy RNGs with %d.', random_seed)
+    #    tf.random.set_seed(random_seed)
+    #    np.random.seed(random_seed)
+    #else:
+    #    logging.info('TensorFlow and NumPy RNGs use default seeds.')
 
-    np.set_printoptions(precision=2, suppress=True)
+    #np.set_printoptions(precision=2, suppress=True)
 
+    """
+    DATASET
+    """
     # First set up the data source(s) and get dataset info.
     if dataset == 'mnist':
         batch_size = 100
@@ -523,8 +525,7 @@ def run_training(
     n_x = np.prod(output_shape)
     num_train_examples = dataset_ops.ds_info.splits['train'].num_examples
 
-    logging.info('Starting CURL script on %s data.', dataset)
-
+    #logging.info('Starting CURL script on %s data.', dataset)
     # Set up placeholders for training.
 
     x_train_raw = keras.Input(dtype=tf.float32, shape=(batch_size,) + output_shape)

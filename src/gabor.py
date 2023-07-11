@@ -34,11 +34,46 @@ class _InputOptimizerBase:
         :return: the operation on which the input will be optimized
         """
         if self.operation is not None:
-            return [self.operation]
+            return [self.operation], [None]
         elif len(self.models) > 0:
             return adj_model(self.models, neuron_query, input_shape=self.img_shape)
         else:
             raise ValueError("No valid operation")
+
+    def best_match(self, processes, dataloader, mask=None, **MaskParams):
+        """
+        Find the image that maximizes the activation of the operation in each process
+        Use this when searching for the best match for multiple processes
+
+        :param processes: The processes containing the operations
+        :param dataloader: The dataset containing the images
+        :param mask: The mask to be applied to the image (optional)
+        :param MaskParams: The parameters of the specific mask
+        :return: The activation(s) and the image(s) that maximizes the activation
+        """
+        best_images = [None] * len(processes)
+        best_activations = [-np.inf] * len(processes)
+        for image_batch, _ in tqdm(dataloader):
+            for image in image_batch:
+                image = mask_image(image, mask, self.bias, **MaskParams)
+                if len(image.shape) == 2:
+                    image = np.expand_dims(image, axis=0)
+                if type(image) is not tf.Variable:
+                    image = tf.Variable(image)
+                Y = []
+                if self.operation is not None:
+                    Y = self.operation(image)
+                else:
+                    for model in self.models:
+                        y = model(image)
+                        Y.append(y)
+                    Y = tf.reduce_mean(Y)
+                for i, proc in enumerate(processes):
+                    process_activation = proc.query_fn(Y)
+                    if process_activation > best_activations[i]:
+                        best_activations[i] = process_activation
+                        best_images[i] = image
+        return best_activations, best_images
 
     @staticmethod
     def masked_responses(images, operation, mask='gaussian', bias=0, **MaskParams):
@@ -159,7 +194,7 @@ class Gabor(_InputOptimizerBase):
         if gabor_loader is None:
             gabor_loader = self.create_gabor_loader(self.ranges)
 
-        operations = self.get_operations(neuron_query)
+        operations, query_fns = self.get_operations(neuron_query)
 
         # Evaluate all gabors
         activations = []
@@ -181,6 +216,7 @@ class Gabor(_InputOptimizerBase):
             return GaborProcess(
                 image=gabor_loader[best_idx]['image'],
                 operation=operations[0],
+                query_fn=query_fns[0],
                 bias=self.bias,
                 scale=self.scale,
                 activation=activations[best_idx],
@@ -203,6 +239,7 @@ class Gabor(_InputOptimizerBase):
             processes.append(GaborProcess(
                 image=gabor_loader[best_idx]['image'],
                 operation=operations[neuron_id],
+                query_fn=query_fns[neuron_id],
                 bias=self.bias,
                 scale=self.scale,
                 activation=best_activation,
@@ -223,12 +260,12 @@ class Gabor(_InputOptimizerBase):
         :param target_contrast: Targer contrast of optimal gabor
         :return: Process(es) for optimal gabor filters for the queried neurons
         """
-        operations = self.get_operations(neuron_query)
+        operations, query_fns = self.get_operations(neuron_query)
         processes = []
 
         bounds = self.limits * self.img_shape[0] if self.img_shape[0] > 1 else self.limits
 
-        for op in operations:
+        for op, query in zip(operations, query_fns):
             def neg_model_activation(params):
                 params = [np.clip(p, l, u) for p, (l, u) in zip(params, bounds)]
                 gabor = [self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
@@ -274,6 +311,7 @@ class Gabor(_InputOptimizerBase):
 
             processes.append(GaborProcess(seed=best_seed,
                                           operation=op,
+                                          query_fn=query,
                                           image=best_gabor,
                                           bias=self.bias,
                                           scale=self.scale,
