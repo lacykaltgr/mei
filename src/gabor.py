@@ -78,6 +78,7 @@ class _InputOptimizerBase:
     def compute_spatial_frequency(img):
         """
         Computes and plots the spatial frequency of a given image
+
         :param img: image to compute sf on
         :return: frequency of each column, row in arrays, magnitude spectrum
         """
@@ -230,11 +231,9 @@ class Gabor(_InputOptimizerBase):
         """
         operations = self.get_operations(neuron_query)
         processes = []
-
         bounds = self.limits * self.img_shape[0] if self.img_shape[0] > 1 else self.limits
 
         for op in operations:
-
             def neg_model_activation(params):
                 params = [np.clip(p, l, u) for p, (l, u) in zip(params, bounds)]
                 gabor = [self.create_gabor(height=self.img_shape[-2], width=self.img_shape[-1],
@@ -246,7 +245,6 @@ class Gabor(_InputOptimizerBase):
                          for channel in range(self.img_shape[0])]
                 gabor = np.stack(gabor, axis=0)
 
-                # Compute activation
                 with torch.no_grad():
                     norm = (gabor - self.bias) / self.scale
                     img = torch.Tensor(norm).to(self.device)

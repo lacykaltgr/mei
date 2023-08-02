@@ -125,7 +125,6 @@ class MNIST_model(_ExampleModel):
         self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         self.test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-
         if load:
             self.load()
 
