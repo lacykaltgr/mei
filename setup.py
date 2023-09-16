@@ -9,7 +9,7 @@ setup(
     author='László Freund',                   # Type in your name
     author_email='freundl0509@gmail.com',      # Type in your E-Mail
     url='https://github.com/lacykaltgr/mei',   # Provide either the link to your github or to your website
-    download_url='https://github.com/lacykaltgr/mei/archive/refs/heads/torch.zip',    # I explain this later on
+    download_url='https://github.com/lacykaltgr/mei/archive/refs/tags/v0.0.1.tar.gz',    # I explain this later on
     keywords=['generate', 'mei', 'most exciting', 'input optimization', 'interpretability'],   # Keywords that define your package best
     install_requires=[            # I get to this in a second
         'torch',

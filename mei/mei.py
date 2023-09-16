@@ -139,7 +139,7 @@ class MEI(Gabor):
                         width_y = imh - h
                         oy = np.random.normal(mid_y, width_y * 0.3, 1)
                         oy = int(np.clip(oy, 0, imh - h))
-                        # insert the crop into src.data[0]
+                        # insert the crop into mei.data[0]
                         src.data[0].copy_(torch.Tensor(image[:, ox:ox + w, oy:oy + h]))
                     else:
                         ox = int((imw - w) / 2)
@@ -210,7 +210,7 @@ class MEI(Gabor):
                         width_y = imh - h
                         oy = np.random.normal(mid_y, width_y * 0.3, 1)
                         oy = int(np.clip(oy, 0, imh - h))
-                        # insert the crop into src.data[0]
+                        # insert the crop into mei.data[0]
                         src.data[:].copy_(torch.Tensor(image[..., ox:ox + w, oy:oy + h]))
                     else:
                         ox = int((imw - w) / 2)

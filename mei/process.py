@@ -199,7 +199,7 @@ class MEIProcess(_Process):
 
     def make_step(self, src, step_size=1.5, sigma=None, eps=1e-12, add_loss=0):
         """
-        Update src in place making a gradient ascent step in the output of net.
+        Update mei in place making a gradient ascent step in the output of net.
 
         :param src: Image(s) to updata
         :param step_size: Step size to use for the update: (im_old += step_size * grad)
@@ -234,7 +234,7 @@ class MEIProcess(_Process):
         if self.precond > 0:
             grad = fft_smooth(grad, self.precond)
 
-        # src.data += (step_size / (batch_mean(torch.abs(grad.data), keepdim=True) + eps)) * (step_gain / 255) * grad.data
+        # mei.data += (step_size / (batch_mean(torch.abs(grad.data), keepdim=True) + eps)) * (step_gain / 255) * grad.data
         a = step_size / (torch.abs(grad.data).mean() + eps)
         b = self.step_gain * grad.data  # itt (step gain -255) volt az egyik szorzó
         src.data += a * b
@@ -252,7 +252,7 @@ class MEIProcess(_Process):
         # In any way, gradient mean is only used as normalization here and using the mean is
         # alright (also image generation works normally).
 
-        # print(src.data.std() * scale)
+        # print(mei.data.std() * scale)
         if self.norm is not None and self.norm > 0.0:
             data_idx = batch_std(src.data) + eps > self.norm / self.scale
             src.data[data_idx] = (src.data / (batch_std(src.data, keepdim=True) + eps) * self.norm / self.scale)[
