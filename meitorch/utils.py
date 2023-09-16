@@ -133,7 +133,7 @@ def mask_image(img, mask='gaussian', background=0, operation=lambda x: x, device
     elif mask == 'gaussian':
         factor = MaskParams.get('factor', 1/4)
         _mask = gaussian_mask(img, factor)
-    elif mask == 'mei':
+    elif mask == 'meitorch':
         _mask = mei_mask(img, **MaskParams)
     elif mask == 'mei_tight':
         _mask, _ = mei_tight_mask(img, operation, device, **MaskParams)

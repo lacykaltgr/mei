@@ -44,7 +44,7 @@ class _Process:
         """
         Apply a mask to the image
 
-        :param mask: The mask to be applied (gaussian, mei, tight_mei)
+        :param mask: The mask to be applied (gaussian, meitorch, tight_mei)
         :param MaskParams: The parameters for the specific mask
         :return: The masked image
         """
@@ -56,7 +56,7 @@ class _Process:
         """
         Apply a mask to the image and return the activation of the operation
 
-        :param mask: The mask to be applied (gaussian, mei, tight_mei)
+        :param mask: The mask to be applied (gaussian, meitorch, tight_mei)
         :param MaskParams: The parameters for the specific mask
         :return: The activation and the masked image
         """
@@ -163,7 +163,7 @@ class MEIProcess(_Process):
         self.lim_contrast = None
         self.point_rf = None
 
-        # mei parameters
+        # meitorch parameters
         self.iter_n = 1000 if 'iter_n' not in MEIParams else MEIParams['iter_n']
         self.start_sigma = 1.5 if 'start_sigma' not in MEIParams else MEIParams['start_sigma']
         self.end_sigma = 0.01 if 'end_sigma' not in MEIParams else MEIParams['end_sigma']
@@ -199,7 +199,7 @@ class MEIProcess(_Process):
 
     def make_step(self, src, step_size=1.5, sigma=None, eps=1e-12, add_loss=0):
         """
-        Update mei in place making a gradient ascent step in the output of net.
+        Update meitorch in place making a gradient ascent step in the output of net.
 
         :param src: Image(s) to updata
         :param step_size: Step size to use for the update: (im_old += step_size * grad)
@@ -234,7 +234,7 @@ class MEIProcess(_Process):
         if self.precond > 0:
             grad = fft_smooth(grad, self.precond)
 
-        # mei.data += (step_size / (batch_mean(torch.abs(grad.data), keepdim=True) + eps)) * (step_gain / 255) * grad.data
+        # meitorch.data += (step_size / (batch_mean(torch.abs(grad.data), keepdim=True) + eps)) * (step_gain / 255) * grad.data
         a = step_size / (torch.abs(grad.data).mean() + eps)
         b = self.step_gain * grad.data  # itt (step gain -255) volt az egyik szorzó
         src.data += a * b
@@ -252,7 +252,7 @@ class MEIProcess(_Process):
         # In any way, gradient mean is only used as normalization here and using the mean is
         # alright (also image generation works normally).
 
-        # print(mei.data.std() * scale)
+        # print(meitorch.data.std() * scale)
         if self.norm is not None and self.norm > 0.0:
             data_idx = batch_std(src.data) + eps > self.norm / self.scale
             src.data[data_idx] = (src.data / (batch_std(src.data, keepdim=True) + eps) * self.norm / self.scale)[

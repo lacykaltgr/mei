@@ -1,7 +1,7 @@
 from distutils.core import setup
 setup(
-    name='mei',         # How you named your package folder (MyLib)
-    packages=['mei'],   # Chose the same as "name"
+    name='meitorch',         # How you named your package folder (MyLib)
+    packages=['meitorch'],   # Chose the same as "name"
     version='0.1',      # Start with a small number and increase it with every change you make
     license='MIT',        # Chose a license from here: https://help.github.com/articles/licensing-a-repository
     description="Generate Most Exciting Input to explore and understand Tensorflow/PyTorch model's behavior "
@@ -10,7 +10,7 @@ setup(
     author_email='freundl0509@gmail.com',      # Type in your E-Mail
     url='https://github.com/lacykaltgr/mei',   # Provide either the link to your github or to your website
     download_url='https://github.com/lacykaltgr/mei/archive/refs/tags/v0.0.1.tar.gz',    # I explain this later on
-    keywords=['generate', 'mei', 'most exciting', 'input optimization', 'interpretability'],   # Keywords that define your package best
+    keywords=['generate', 'meitorch', 'most exciting', 'input optimization', 'interpretability'],   # Keywords that define your package best
     install_requires=[            # I get to this in a second
         'torch',
         'numpy',
