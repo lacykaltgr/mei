@@ -1,5 +1,5 @@
 from meitorch.mei import MEI
-from meitorch.process import MEIProcess
-from meitorch.gabor import Gabor
+from meitorch.result import MEIProcess
+from meitorch.linearmei import LinearMEI
 
-__all__ = ['MEI', 'MEIProcess', 'Gabor']
+__all__ = ['MEI', 'MEIProcess', 'LinearMEI']
