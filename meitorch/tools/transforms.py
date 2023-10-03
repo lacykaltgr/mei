@@ -4,8 +4,53 @@ from tqdm import tqdm
 import numpy as np
 import torch
 from scipy.ndimage import label
+from numpy.linalg import inv, cholesky
 
 
+def gauss2d(vx, vy, mu, cov):
+    """
+    Computes the 2D Gaussian distribution with the given parameters.
+
+    :param vx: x coordinate
+    :param vy: y coordinate
+    :param mu: mean
+    :param cov: covariance
+    :return: The Gaussian distribution
+    """
+    input_shape = vx.shape
+    mu_x, mu_y = mu
+    v = np.stack([vx.ravel() - mu_x, vy.ravel() - mu_y])
+    cinv = inv(cholesky(cov))
+    y = cinv @ v
+    g = np.exp(-0.5 * (y * y).sum(axis=0))
+    return g.reshape(input_shape)
+
+
+def fit_gauss_envelope(img):
+    """
+    Given an image, finds a Gaussian fit to the image by treating the square of mean shifted image as the distribution.
+
+    :param img: The image
+    :return: The Gaussian distribution
+    """
+    # scale down the image to 2 dimensions
+    while len(img.shape) > 2:
+        img = img.mean(axis=0)
+    vx, vy = np.meshgrid(np.arange(img.shape[1]), np.arange(img.shape[0]))
+    rect = (img - img.mean()) ** 2
+    pdf = rect / rect.sum()
+    mu_x = (vx * pdf).sum()
+    mu_y = (vy * pdf).sum()
+
+    cov_xy = (vx * vy * pdf).sum() - mu_x * mu_y
+    cov_xx = (vx ** 2 * pdf).sum() - mu_x ** 2
+    cov_yy = (vy ** 2 * pdf).sum() - mu_y ** 2
+
+    cov = np.array([[cov_xx, cov_xy], [cov_xy, cov_yy]])
+
+    g = gauss2d(vx, vy, (mu_x, mu_y), cov)
+    mu = (mu_x, mu_y)
+    return mu, cov, np.sqrt(g.reshape(img.shape))
 
 def roll(tensor, shift, axis):
     """
@@ -49,9 +94,6 @@ def batch_std(batch, keepdim=False, unbiased=True):
     return std
 
 
-
-
-
 def remove_small_area(mask, size_threshold=50):
     """
     Removes contiguous areas in a thresholded image that is smaller in the number of pixels than size_threshold.
@@ -70,62 +112,7 @@ def remove_small_area(mask, size_threshold=50):
     return mask_mod
 
 
-def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_lim=False, device='cpu'):
-    """
-    Computes the contrast tuning curve for the given image and model.
 
-    :param model: The model
-    :param img: The image to compute the tuning curve for
-    :param min_contrast: The minimum contrast to use
-    :param n: The number of points to use
-    :param linear: Whether to use linearly spaced points
-    :param use_max_lim: Whether to use the maximum possible contrast without clipping
-    :param device: The device to use
-    :return: The contrast tuning curve
-    """
-    mu = img.mean()
-    delta = img - img.mean()
-    vmax = delta.max()
-    vmin = delta.min()
-
-    min_pdist = delta[delta > 0].min()
-    min_ndist = (-delta[delta < 0]).min()
-
-    max_lim_gain = max((1 - mu) / min_pdist, mu / min_ndist)
-
-    base_contrast = img.std()
-
-    lim_contrast = 1 / (vmax - vmin) * base_contrast # maximum possible reachable contrast without clipping
-    min_gain = min_contrast / base_contrast
-    max_gain = min((1 - mu) / vmax, -mu / vmin)
-
-    def run(x):
-        with torch.no_grad():
-            img = torch.Tensor(x).to(device)
-            result = model(img)
-        return result
-
-    target = max_lim_gain if use_max_lim else max_gain
-
-    if linear:
-        gains = np.linspace(min_gain, target, n)
-    else:
-        gains = np.logspace(np.log10(min_gain), np.log10(target), n)
-    vals = []
-    cont = []
-
-    for g in tqdm(gains):
-        img = delta * g + mu
-        img = np.clip(img, 0, 1)
-        c = img.std()
-        v = run(img).data.cpu().numpy()
-        cont.append(c)
-        vals.append(v)
-
-    vals = np.array(vals)
-    cont = np.array(cont)
-
-    return cont, vals, lim_contrast
 
 
 def adjust_img_stats(img, mu, sigma, img_min=0, img_max=255, mask=None, max_gain=6000, min_gain=0.001,

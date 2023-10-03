@@ -1,17 +1,16 @@
 import torch
 
-from .linearmei import LinearMEI
-from result import MEI_image, MEI_distibution, MEI_neural_network
-from tools.deepdraw import deepdraw
-from tools.generator_nn import get_net
+from meitorch.linearmei import LinearMEI
+from meitorch.result import MEI_image, MEI_distibution, MEI_neural_network
+from meitorch.objective.deepdraw import deepdraw
 
 
 class MEI(LinearMEI):
     """
     Class for generating more complex optimized inputs
     """
-    def __init__(self, operations, shape=(1, 28, 28), device='cpu'):
-        super().__init__(operations, shape, device)
+    def __init__(self, operation, shape=(1, 28, 28),  device='cpu'):
+        super().__init__(operation, shape, device)
 
     def generate_image_based(self, **MEIParams):
         """
@@ -21,42 +20,35 @@ class MEI(LinearMEI):
         :param MEIParams: Additional parameters for the optimization process.
         :return: Process(es) with MEI images
         """
-        processes = []
         n_samples = MEIParams["n_samples"]
-        for op in self.operations:
-            if MEIParams["gradient_rf"]:
-                op, pointrf = self.to_gradient_rf_op(op)
-            process = MEI_image(n_samples, self.img_shape, **MEIParams)
-            result_stats = deepdraw(process, op)
-            process.result_dict.update(result_stats)
-            processes.append(process)
-        return processes if len(processes) > 1 else processes[0]
+        del MEIParams["n_samples"]
+        process = MEI_image(self.img_shape, n_samples, **MEIParams)
+        return self._generate(process)
 
     def generate_variational(self, **MEIParams):
-        processes = []
         distribution = MEIParams["distribution"]
-        for op in self.operations:
-            if MEIParams["gradient_rf"]:
-                op, pointrf = self.to_gradient_rf_op(op)
-            process = MEI_distibution(distribution, self.img_shape, **MEIParams)
-            result_dict = deepdraw(process, op)
-            process.result_dict.update(result_dict)
-            processes.append(process)
-        return processes if len(processes) > 1 else processes[0]
+        del MEIParams["distribution"]
+        process = MEI_distibution(distribution, self.img_shape, **MEIParams)
+        return self._generate(process)
 
     def generate_nn_based(self, **MEIParams):
-        processes = []
-        input_type = MEIParams["input_type"]
-        input_shape = MEIParams["input_shape"]
-        for op in self.operations:
-            if MEIParams["gradient_rf"]:
-                op, pointrf = self.to_gradient_rf_op(op)
-            net = get_net(MEIParams["net"])
-            process = MEI_neural_network(net,input_type, input_shape, self.img_shape, **MEIParams)
-            result_dict = deepdraw(process, op)
-            process.result_dict.update(result_dict)
-            processes.append(process)
-        return processes if len(processes) > 1 else processes[0]
+        net = MEIParams["net"]
+        del MEIParams["net"]
+        process = MEI_neural_network(net, self.img_shape, **MEIParams)
+        return self._generate(process)
+
+    def _generate(self, process):
+        if self.is_gradient_rf_op(process.param_dict):
+            op, pointrf = self.to_gradient_rf_op(self.operation)
+            process.result_dict.update({"pointrf": pointrf})
+        else:
+            op = self.operation
+        result_dict = deepdraw(process, op)
+        process.result_dict.update(result_dict)
+        return process
+
+    def is_gradient_rf_op(self, MEIParams):
+        return "gradient_rf" in MEIParams and MEIParams["gradient_rf"]
 
     def to_gradient_rf_op(self, operation):
         """

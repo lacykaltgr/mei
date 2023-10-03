@@ -1,8 +1,9 @@
 from torch import optim
 import torch
+from meitorch.tools.schedules import _ConstantSchedule, Scheduler
 
 
-def get_optimizer(optimizer_type: str = "adam", lr: float = 0.001, **kwargs):
+def get_optimizer(optimizer_type: str = "adam", **kwargs):
     """
     Get an optimizer based on the optimizer type and the learning rate
 
@@ -12,11 +13,12 @@ def get_optimizer(optimizer_type: str = "adam", lr: float = 0.001, **kwargs):
     :return: The optimizer
     """
     if optimizer_type == "adam":
-        return optim.Adam(lr=lr, **kwargs)
+        del kwargs["iter_n"]
+        return optim.Adam(**kwargs)
     elif optimizer_type == "sgd":
-        return optim.SGD(lr=lr, **kwargs)
+        return optim.SGD(**kwargs)
     elif optimizer_type == "rmsprop":
-        return optim.RMSprop(lr=lr, **kwargs)
+        return optim.RMSprop(**kwargs)
     elif optimizer_type == "mei":
         return MEIoptimizer(**kwargs)
     elif optimizer_type == "meibatch":
@@ -29,27 +31,29 @@ class MEIoptimizer(optim.Optimizer):
 
     def __init__(self, params, defaults):
         super(MEIoptimizer, self).__init__(params, defaults)
-        self.start_step_size = defaults["start_step_size"] if "start_step_size" in defaults else 3.0
-        self.end_step_size = defaults["end_step_size"] if "end_step_size" in defaults else 0.125
-        self.step_gain = defaults["step_gain"] if "step_gain" in defaults else 0.1
-        self.eps = defaults["eps"] if "eps" in defaults else 1e-8
 
         assert "iter_n" in defaults, "iter_n must be specified"
         self.iter_n = defaults["iter_n"]
-        self.params = []
-        for param_group in params:
-            self.params.append(param_group)
+
+        step_size = defaults["start_step_size"] if "start_step_size" in defaults else 0.125
+        if isinstance(step_size, (int, float)):
+            self.step_size = _ConstantSchedule(step_size)
+        elif isinstance(step_size, Scheduler):
+            self.step_size = step_size
+
+        self.eps = defaults["eps"] if "eps" in defaults else 1e-8
+
 
     def step(self, step_i):
-        step_size = self.start_step_size + \
-                    ((self.end_step_size - self.start_step_size) * step_i) / self.iter_n
+        step_size = self.step_size(step_i)
         step = None
-        for param_group in self.params:
-            grad = param_group.grad.data
-            a = step_size / (torch.abs(grad).mean() + self.eps)
-            b = self.step_gain * grad.data  # itt (step gain -255) volt az egyik szorzó
-            step = a * b
-            param_group.data += step
+        for param_group in self.param_groups:
+            for param in param_group["params"]:
+                grad = param.grad.data
+                a = step_size / (torch.abs(grad).mean() + self.eps)
+                b = param_group["lr"] * grad.data  # itt (step gain -255) volt az egyik szorzó
+                step = a * b
+                param.data += step
         return step
 
 
@@ -58,15 +62,15 @@ class MEIBatchoptimizer(MEIoptimizer):
         super(MEIBatchoptimizer, self).__init__(params, defaults)
 
     def step(self, step_i):
-        step_size = self.start_step_size + \
-                    ((self.end_step_size - self.start_step_size) * step_i) / self.iter_n
+        step_size = self.step_size(step_i)
         step = None
-        for param_group in self.params:
-            grad = param_group.grad.data
-            a = step_size / (torch.mean(torch.abs(grad.data), dim=0, keepdim=True) + self.eps)
-            b = self.step_gain / 255 * grad.data
-            step = a * b
-            param_group.data += step
+        for param_group in self.param_groups:
+            for param in param_group["params"]:
+                grad = param.grad.data
+                a = step_size / (torch.mean(torch.abs(grad.data), dim=0, keepdim=True) + self.eps)
+                b = param_group["lr"] * grad.data
+                step = a * b
+                param.data += step
         return step
 
 # * both versions are equivalent for a single-image batch, for batches with more than

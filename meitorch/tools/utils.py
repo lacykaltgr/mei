@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import os
 from matplotlib import pyplot as plt
+from torch.nn import Module, Sequential
 
 
 def write_image_to_disk(filepath, image):
@@ -107,6 +108,38 @@ def save_as_figure(receptive_fields, n_cols, shape, save_path):
     #TODO save path mas am
     np.save(save_path, receptive_fields)
     fig.savefig(save_path, facecolor="white")
+
+
+class SerializableSequential(Sequential):
+
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def serialize(self):
+        return [layer.serialize() for layer in self._modules.values()]
+
+    @staticmethod
+    def deserialize(serialized):
+        sequential = SerializableSequential(*[
+            layer["type"].deserialize(layer)
+            if isinstance(layer, dict)
+            else SerializableSequential.deserialize(layer)
+            for layer in serialized
+        ])
+        return sequential
+
+
+class SerializableModule(Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def serialize(self):
+        return dict(type=self.__class__, params=None)
+
+    @staticmethod
+    def deserialize(serialized):
+        return serialized["type"]
 
 
 

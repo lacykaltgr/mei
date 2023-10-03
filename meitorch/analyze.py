@@ -182,3 +182,61 @@ class Analyze:
         freq_cols = np.fft.fftfreq(cols)
 
         return freq_cols, freq_rows, magnitude_spectrum
+
+    @staticmethod
+    def contrast_tuning(model, img, min_contrast=0.01, n=1000, linear=True, use_max_lim=False, device='cpu'):
+        """
+        Computes the contrast tuning curve for the given image and model.
+
+        :param model: The model
+        :param img: The image to compute the tuning curve for
+        :param min_contrast: The minimum contrast to use
+        :param n: The number of points to use
+        :param linear: Whether to use linearly spaced points
+        :param use_max_lim: Whether to use the maximum possible contrast without clipping
+        :param device: The device to use
+        :return: The contrast tuning curve
+        """
+        mu = img.mean()
+        delta = img - img.mean()
+        vmax = delta.max()
+        vmin = delta.min()
+
+        min_pdist = delta[delta > 0].min()
+        min_ndist = (-delta[delta < 0]).min()
+
+        max_lim_gain = max((1 - mu) / min_pdist, mu / min_ndist)
+
+        base_contrast = img.std()
+
+        lim_contrast = 1 / (vmax - vmin) * base_contrast # maximum possible reachable contrast without clipping
+        min_gain = min_contrast / base_contrast
+        max_gain = min((1 - mu) / vmax, -mu / vmin)
+
+        def run(x):
+            with torch.no_grad():
+                img = torch.Tensor(x).to(device)
+                result = model(img)
+            return result
+
+        target = max_lim_gain if use_max_lim else max_gain
+
+        if linear:
+            gains = np.linspace(min_gain, target, n)
+        else:
+            gains = np.logspace(np.log10(min_gain), np.log10(target), n)
+        vals = []
+        cont = []
+
+        for g in tqdm(gains):
+            img = delta * g + mu
+            img = np.clip(img, 0, 1)
+            c = img.std()
+            v = run(img).data.cpu().numpy()
+            cont.append(c)
+            vals.append(v)
+
+        vals = np.array(vals)
+        cont = np.array(cont)
+
+        return cont, vals, lim_contrast
