@@ -1,9 +1,13 @@
 from torch import optim
 import torch
-from meitorch.tools.schedules import _ConstantSchedule, Scheduler
+from meitorch.tools.schedules import ConstantSchedule, Scheduler
 
 
-def get_optimizer(optimizer_type: str = "adam", **kwargs):
+def get_optimizer(
+        params,
+        optimizer_type: str = "adam",
+        iter_n = None,
+        **kwargs):
     """
     Get an optimizer based on the optimizer type and the learning rate
 
@@ -13,16 +17,19 @@ def get_optimizer(optimizer_type: str = "adam", **kwargs):
     :return: The optimizer
     """
     if optimizer_type == "adam":
-        del kwargs["iter_n"]
-        return optim.Adam(**kwargs)
+        return optim.Adam(params, **kwargs)
     elif optimizer_type == "sgd":
-        return optim.SGD(**kwargs)
+        return optim.SGD(params, **kwargs)
     elif optimizer_type == "rmsprop":
-        return optim.RMSprop(**kwargs)
+        return optim.RMSprop(params, **kwargs)
     elif optimizer_type == "mei":
-        return MEIoptimizer(**kwargs)
+        assert iter_n is not None, "iter_n must be specified"
+        kwargs.update({"iter_n": iter_n})
+        return MEIoptimizer(params, kwargs)
     elif optimizer_type == "meibatch":
-        return MEIBatchoptimizer(**kwargs)
+        assert iter_n is not None, "iter_n must be specified"
+        kwargs.update({"iter_n": iter_n})
+        return MEIBatchoptimizer(params, kwargs)
     else:
         raise ValueError("Invalid optimizer type (must be 'adam', 'sgd' or 'rmsprop')")
 
@@ -30,6 +37,9 @@ def get_optimizer(optimizer_type: str = "adam", **kwargs):
 class MEIoptimizer(optim.Optimizer):
 
     def __init__(self, params, defaults):
+        assert "lr" in defaults, "lr must be specified"
+        self.lr = defaults["lr"]
+
         super(MEIoptimizer, self).__init__(params, defaults)
 
         assert "iter_n" in defaults, "iter_n must be specified"
@@ -37,15 +47,16 @@ class MEIoptimizer(optim.Optimizer):
 
         step_size = defaults["start_step_size"] if "start_step_size" in defaults else 0.125
         if isinstance(step_size, (int, float)):
-            self.step_size = _ConstantSchedule(step_size)
-        elif isinstance(step_size, Scheduler):
-            self.step_size = step_size
+            self.step_size = ConstantSchedule(step_size)(self.iter_n)
+        elif callable(step_size):
+            self.step_size = step_size(self.iter_n)
 
         self.eps = defaults["eps"] if "eps" in defaults else 1e-8
+        self.step_i = 0
 
 
-    def step(self, step_i):
-        step_size = self.step_size(step_i)
+    def step(self):
+        step_size = self.step_size(self.step_i)
         step = None
         for param_group in self.param_groups:
             for param in param_group["params"]:
@@ -54,6 +65,7 @@ class MEIoptimizer(optim.Optimizer):
                 b = param_group["lr"] * grad.data  # itt (step gain -255) volt az egyik szorzó
                 step = a * b
                 param.data += step
+        self.step_i += 1
         return step
 
 
@@ -61,8 +73,8 @@ class MEIBatchoptimizer(MEIoptimizer):
     def __init__(self, params, defaults):
         super(MEIBatchoptimizer, self).__init__(params, defaults)
 
-    def step(self, step_i):
-        step_size = self.step_size(step_i)
+    def step(self):
+        step_size = self.step_size(self.step_i)
         step = None
         for param_group in self.param_groups:
             for param in param_group["params"]:
@@ -71,6 +83,7 @@ class MEIBatchoptimizer(MEIoptimizer):
                 b = param_group["lr"] * grad.data
                 step = a * b
                 param.data += step
+        self.step_i += 1
         return step
 
 # * both versions are equivalent for a single-image batch, for batches with more than

@@ -5,8 +5,9 @@ from skimage.restoration import denoise_nl_means, estimate_sigma
 import torch
 import kornia
 from torch import nn
+from scipy.ndimage.filters import gaussian_filter
 from abc import ABC, abstractmethod
-from meitorch.tools.schedules import Scheduler, ConstantSchedule
+from meitorch.tools.schedules import ConstantSchedule
 
 
 class Denoiser(nn.Module, ABC):
@@ -15,22 +16,22 @@ class Denoiser(nn.Module, ABC):
         pass
 
     @staticmethod
-    def init_p(parameter):
-        if isinstance(parameter, Scheduler):
-            return parameter
+    def init_p(parameter, iter_n):
+        if callable(parameter):
+            return parameter(iter_n)
         else:
             return ConstantSchedule(parameter)
 
-    def get_denoiser(self, type, **params):
+    def get_denoiser(self, type, n_iters,  **params):
         if type == 'bilateral':
-            denoiser = FilterBlur(type=type, **params)
+            denoiser = FilterBlur(type=type, n_iters=n_iters,  **params)
         elif type == 'gaussian':
-            denoiser = FilterBlur(type=type, **params)
+            denoiser = FilterBlur(type=type, n_iters=n_iters,  **params)
         elif type == 'tv':
             assert 'regularization_scaler' in params.keys(), "regularization_scaler must be specified for tv denoiser"
             assert 'num_iters' in params.keys(), "num_iters must be specified for tv denoiser"
             assert 'lr' in params.keys(), "lr must be specified for tv denoiser"
-            denoiser = TVDenoise(**params)
+            denoiser = TVDenoise(n_iters=n_iters, **params)
         elif type == 'wnnm':
             assert 'patch_size' in params.keys(), "patch_size must be specified for wnnm denoiser"
             assert 'delta' in params.keys(), "delta must be specified for wnnm denoiser"
@@ -39,16 +40,16 @@ class Denoiser(nn.Module, ABC):
             assert 'sigma_n' in params.keys(), "sigma_n must be specified for wnnm denoiser"
             assert 'N_threshold' in params.keys(), "N_threshold must be specified for wnnm denoiser"
             assert 'N_iter' in params.keys(), "N_iter must be specified for wnnm denoiser"
-            denoiser = WNNMDenoiser(**params)
+            denoiser = WNNMDenoiser(n_iters=n_iters, **params)
         elif type == 'bm3d':
             assert 'sigma_psd' in params.keys(), "sigma_psd must be specified for bm3d denoiser"
-            denoiser = BM3DDenoise(**params)
+            denoiser = BM3DDenoise(n_iters=n_iters, **params)
         elif type == 'nlm':
             assert 'patch_size' in params.keys(), "patch_size must be specified for nlm denoiser"
             assert 'patch_distance' in params.keys(), "patch_distance must be specified for nlm denoiser"
             assert 'h' in params.keys(), "h must be specified for nlm denoiser"
             assert 'fast_mode' in params.keys(), "fast_mode must be specified for nlm denoiser"
-            denoiser = NonLocalMeansDenoise(**params)
+            denoiser = NonLocalMeansDenoise(n_iters=n_iters, **params)
         else:
             raise ValueError("Invalid denoiser type "
                              "(must be 'bilateral', 'tv', 'filter', 'wnnm', 'bm3d')")
@@ -56,14 +57,14 @@ class Denoiser(nn.Module, ABC):
 
 
 class TVDenoise(Denoiser):
-    def __init__(self, regularization_scaler=0.0001, num_iters=500, lr=0.1):
+    def __init__(self, n_iters, regularization_scaler=0.0001, num_iters=500, lr=0.1):
         super(TVDenoise, self).__init__()
         self.l2_term = torch.nn.MSELoss(reduction='mean')
         self.regularization_term = kornia.losses.TotalVariation()
 
-        self.regularization_scaler = self.init_p(regularization_scaler)
-        self.num_iters = self.init_p(num_iters)
-        self.lr = self.init_p(lr)
+        self.regularization_scaler = self.init_p(regularization_scaler, n_iters)
+        self.num_iters = self.init_p(num_iters, n_iters)
+        self.lr = self.init_p(lr, n_iters)
 
     def loss(self, clean_image, noisy_image, step_i):
         return self.l2_term(clean_image, noisy_image) + \
@@ -81,7 +82,7 @@ class TVDenoise(Denoiser):
 
 
 class FilterBlur(Denoiser):
-    def __init__(self, type, **filter_params):
+    def __init__(self, n_iters, type, **filter_params):
         super().__init__()
         from kornia import filters
 
@@ -92,15 +93,13 @@ class FilterBlur(Denoiser):
             assert 'sigma_color' in filter_params.keys(), "sigma_color must be specified for bilateral filter"
             assert 'sigma_spatial' in filter_params.keys(), "sigma_spatial must be specified for bilateral filter"
             params = lambda step_i: (filter_params['kernel_size'],
-                                     self.init_p(filter_params['sigma_color'])(step_i),
-                                     self.init_p(filter_params['sigma_spatial'])(step_i))
+                                     self.init_p(filter_params['sigma_color'], n_iters)(step_i),
+                                     self.init_p(filter_params['sigma_spatial'], n_iters)(step_i))
             filter = filters.BilateralBlur
         elif type == 'gaussian':
-            assert 'kernel_size' in filter_params.keys(), "kernel_size must be specified for gaussian filter"
             assert 'sigma' in filter_params.keys(), "sigma must be specified for gaussian filter"
-            params = lambda step_i: (filter_params['kernel_size'],
-                                     self.init_p(filter_params['sigma'])(step_i))
-            filter = filters.GaussianBlur2d
+            params = lambda step_i: (self.init_p(filter_params['sigma'], n_iters)(step_i))
+            filter = lambda params: lambda x: gaussian_filter(x, **params, order=0)
         else:
             raise ValueError("Invalid filter type "
                              "(must be 'bilateral', 'gaussian')")
@@ -114,12 +113,12 @@ class FilterBlur(Denoiser):
 
 
 class NonLocalMeansDenoise(Denoiser):
-    def __init__(self, patch_size=5, patch_distance=6, h=0.8, fast_mode=True):
+    def __init__(self, n_iters, patch_size=5, patch_distance=6, h=0.8, fast_mode=True):
         super().__init__()
 
-        self.patch_size = self.init_p(patch_size)
-        self.patch_distance = self.init_p(patch_distance)
-        self.h = self.init_p(h)
+        self.patch_size = self.init_p(patch_size, n_iters)
+        self.patch_distance = self.init_p(patch_distance, n_iters)
+        self.h = self.init_p(h, n_iters)
         self.fast_mode = fast_mode
 
     def forward(self, noisy_img, step_i):
@@ -141,15 +140,15 @@ class WNNMDenoiser(Denoiser):
      TODO: change channel dimension (now its on -1 implicitly)
     """
 
-    def __init__(self, patch_size, delta, c, K, sigma_n, N_threshold, N_iter=3):
+    def __init__(self, n_iters, patch_size, delta, c, K, sigma_n, N_threshold, N_iter=3):
         super().__init__()
-        self.patch_size = self.init_p(patch_size)
-        self.delta = self.init_p(delta)
-        self.c = self.init_p(c)
-        self.K = self.init_p(K)
-        self.sigma_n = self.init_p(sigma_n)
-        self.N_threshold = self.init_p(N_threshold)
-        self.N_iter = self.init_p(N_iter)  # the number of iterations for estimating \hat{X}_j
+        self.patch_size = self.init_p(patch_size, n_iters)
+        self.delta = self.init_p(delta, n_iters)
+        self.c = self.init_p(c, n_iters)
+        self.K = self.init_p(K, n_iters)
+        self.sigma_n = self.init_p(sigma_n, n_iters)
+        self.N_threshold = self.init_p(N_threshold, n_iters)
+        self.N_iter = self.init_p(N_iter, n_iters)  # the number of iterations for estimating \hat{X}_j
 
     def forward(self, noisy_img, step_i):
         patch_size = self.patch_size(step_i)
@@ -259,9 +258,9 @@ class WNNMDenoiser(Denoiser):
 
 
 class BM3DDenoise(Denoiser):
-    def __init__(self, sigma_psd=30 / 255):
+    def __init__(self, n_iters, sigma_psd=30 / 255):
         super().__init__()
-        self.sigma_psd = self.init_p(sigma_psd)
+        self.sigma_psd = self.init_p(sigma_psd, n_iters)
 
     def forward(self, noisy_img, step_i):
         import bm3d

@@ -5,9 +5,7 @@ import torch
 import numpy as np
 
 from meitorch.tools.distributions import GaussianMixtureModel
-from meitorch.tools.schedules import ConstantLearningRateSchedule, LRScheduler, CosineAnnealingLR, Scheduler
 from meitorch.tools.denoisers import Denoiser
-from meitorch.analyze import Analyze
 
 
 class MEI_result(nn.Module, ABC):
@@ -21,8 +19,8 @@ class MEI_result(nn.Module, ABC):
         if "scaler" in self.param_dict.keys() and self.param_dict["scaler"] is not None:
             if isinstance(self.param_dict["scaler"], (int, float)):
                 self.scaler = lambda step: self.param_dict["scaler"]
-            elif isinstance(self.param_dict["scaler"], Scheduler):
-                self.scaler = self.param_dict["scaler"]
+            elif callable(self.param_dict["scaler"]):
+                self.scaler = self.param_dict["scaler"](self.iter_n)
             else:
                 raise ValueError("scaler must be float or Scheduler")
         else:
@@ -31,8 +29,8 @@ class MEI_result(nn.Module, ABC):
         if "precond" in self.param_dict.keys() and self.param_dict["precond"] is not None:
             if isinstance(self.param_dict["precond"], (int, float)):
                 self.precond = lambda step: self.param_dict["precond"]
-            elif isinstance(self.param_dict["precond"], Scheduler):
-                self.precond = self.param_dict["precond"]
+            elif callable(self.param_dict["precond"]):
+                self.precond = self.param_dict["precond"](self.iter_n)
             else:
                 raise ValueError("precond must be float or Scheduler")
         else:
@@ -48,7 +46,8 @@ class MEI_result(nn.Module, ABC):
                 self.blur = self.param_dict["blur"]
             elif isinstance(self.param_dict["blur"], str):
                 assert "blur_params" in self.param_dict.keys(), "blur_params must be specified"
-                self.blur = Denoiser.get_denoiser(self.param_dict["blur"], self.param_dict["blur_params"])
+                self.blur = Denoiser.get_denoiser(self.param_dict["blur"],
+                                                  self.iter_n,  self.param_dict["blur_params"])
         else:
             self.blur = None
 
@@ -85,10 +84,10 @@ class MEI_result(nn.Module, ABC):
             optimizer_hparams = self.param_dict["optimizer_params"]
         else:
             optimizer_hparams = dict()
-        optimizer_hparams.update(
-            {"params": self.parameters(),
-             "iter_n": self.iter_n})
-        self.optimizer = get_optimizer(self.param_dict["optimizer"], **optimizer_hparams)
+
+        self.optimizer = get_optimizer(self.parameters(),
+                                       self.param_dict["optimizer"],
+                                       self.iter_n, **optimizer_hparams)
 
         #assert "lr" in self.param_dict["optimizer_params"].keys(), "lr must be specified"
         #step_gain = self.param_dict["optimizer_params"]["lr"]
@@ -168,7 +167,6 @@ class MEI_result(nn.Module, ABC):
             return self.param_dict[item]
         else:
             return super().__getattr__(item)
-
 
 
 class MEI_image(MEI_result):

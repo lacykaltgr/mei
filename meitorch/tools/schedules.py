@@ -1,6 +1,5 @@
 import warnings
 
-import numpy as np
 import torch
 from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 from abc import ABC, abstractmethod
@@ -8,13 +7,13 @@ from abc import ABC, abstractmethod
 
 
 def LinearSchedule(start, end):
-    return lambda step: _LinearSchedule(start, end, step)
+    return lambda iter_n: _LinearSchedule(start, end, iter_n)
 
 def OctaveSchedule(values: list):
-    return lambda step: _OctaveSchedule(values, step)
+    return lambda iter_n: _OctaveSchedule(values, iter_n)
 
 def ConstantSchedule(value):
-    return lambda step: _ConstantSchedule(value)
+    return lambda iter_n: _ConstantSchedule(value)
 
 
 class Scheduler(ABC):
@@ -39,7 +38,10 @@ class _OctaveSchedule(Scheduler):
         self.steps = steps
 
     def __call__(self, step):
-        return self.values[step // self.steps]
+        octaves = len(self.values)
+        steps_per_octave = self.steps // octaves + 1
+        step = step // steps_per_octave
+        return self.values[step]
 
 
 class _ConstantSchedule(Scheduler):

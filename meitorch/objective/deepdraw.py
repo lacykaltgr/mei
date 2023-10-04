@@ -10,7 +10,7 @@ from meitorch.analyze import Analyze
 
 eps = 1e-12
 
-def deepdraw(process, operation, iter_n=1000, start_sigma=1.5, end_sigma=0.01):
+def deepdraw(process, operation):
     """
     Generate an image by iteratively optimizing activity of net.
 
@@ -23,7 +23,7 @@ def deepdraw(process, operation, iter_n=1000, start_sigma=1.5, end_sigma=0.01):
     :return: The optimized image
     """
 
-    for i in tqdm(range(iter_n)):
+    for i in tqdm(range(process.iter_n)):
         # Diversity for multiple images (Image based)
         if process.diverse:
             div_term = diversion_term(process, process.div_metric,
@@ -57,7 +57,9 @@ def make_step(process, operation, step_i, add_loss=0):
 
     if process.scaler:
         scale = process.scaler(step_i)
-        scipy.ndimage.zoom(inputs, (1, 1, scale, scale))
+        img_scale = inputs.detach().numpy()
+        scipy.ndimage.zoom(img_scale, (1, 1, scale, scale))
+        inputs.data = torch.from_numpy(img_scale)
 
     # apply jitter shift
     if process.jitter:
@@ -80,9 +82,13 @@ def make_step(process, operation, step_i, add_loss=0):
 
     if process.precond:
         for param in process.parameters():
-            param.grad = fft_smooth(param.grad, process.precond)
+            print(param.grad.shape)
+            smooth_grad = fft_smooth(param.grad, process.precond(step_i))
+            print(smooth_grad.shape)
+            param.grad.data.copy_(smooth_grad)
 
     process.optimizer.step()
+    #process.schedule.step()
 
     if process.norm and process.norm > 0.0:
         data_idx = batch_std(inputs.data) + eps > process.norm / process.scale
@@ -96,8 +102,13 @@ def make_step(process, operation, step_i, add_loss=0):
     if process.clip:
         inputs.data = torch.clamp(inputs.data, -process.bias / process.scale, (1 - process.bias) / process.scale)
 
+    from matplotlib.pyplot import imshow, show
+    imshow(inputs.data[0][0].detach().cpu().numpy())
+    show()
     if process.blur:
         process.blur(inputs.data)
+    imshow(inputs.data[0][0].detach().cpu().numpy())
+    show()
 
 
 def get_result_stats(process, operation):
@@ -160,4 +171,4 @@ def diversion_term(process, div_metric='correlation', div_linkage='minimum', div
             raise ValueError('Invalid linkage for the diversity term: {}'.format(div_linkage))
 
         div_term = div_weight * distance
-        return div_term
+    return div_term
