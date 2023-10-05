@@ -1,0 +1,29 @@
+Metadata-Version: 2.1
+Name: meitorch
+Version: 0.1
+Summary: Generate Most Exciting Input to explore and understand Tensorflow/PyTorch model's behavior by identifying input samples that induce high activation from specific neurons in your model.
+Home-page: https://github.com/lacykaltgr/mei
+Download-URL: https://github.com/lacykaltgr/mei/archive/refs/tags/v0.0.1.tar.gz
+Author: László Freund
+Author-email: freundl0509@gmail.com
+License: MIT
+Keywords: generate,meitorch,most exciting,input optimization,interpretability
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Topic :: Software Development :: Build Tools
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.4
+Classifier: Programming Language :: Python :: 3.5
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+License-File: LICENSE.txt
+Requires-Dist: torch
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: tqdm
+Requires-Dist: scikit-image
+Requires-Dist: torchvision
+Requires-Dist: matplotlib
