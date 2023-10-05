@@ -4,8 +4,8 @@ from tqdm import tqdm
 from scipy import optimize
 from scipy import ndimage
 
-from objective.gabor import create_gabor_loader, create_gabor, default_gabor_ranges, default_gabor_limits
-from result import MEI_image
+from .objective.gabor import create_gabor_loader, create_gabor, default_gabor_ranges, default_gabor_limits
+from .result import MEI_image
 
 
 class LinearMEI:

@@ -5,8 +5,6 @@ import torch
 from tqdm import tqdm
 from ..tools.transforms import roll, batch_std
 from ..tools.precond import fft_smooth
-from ..analyze import Analyze
-
 
 eps = 1e-12
 

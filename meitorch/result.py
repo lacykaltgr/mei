@@ -4,8 +4,8 @@ from torch import nn
 import torch
 import numpy as np
 
-from tools.distributions import GaussianMixtureModel
-from tools.denoisers import Denoiser
+from .tools.distributions import GaussianMixtureModel
+from .tools.denoisers import Denoiser
 
 
 class MEI_result(nn.Module, ABC):

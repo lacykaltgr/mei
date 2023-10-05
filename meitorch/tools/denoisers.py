@@ -7,7 +7,7 @@ import kornia
 from torch import nn
 from scipy.ndimage.filters import gaussian_filter
 from abc import ABC, abstractmethod
-from schedules import ConstantSchedule
+from .schedules import ConstantSchedule
 
 
 class Denoiser(nn.Module, ABC):

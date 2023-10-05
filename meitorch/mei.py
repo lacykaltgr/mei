@@ -1,8 +1,8 @@
 import torch
 
-from linearmei import LinearMEI
-from result import MEI_image, MEI_distibution, MEI_neural_network
-from objective.deepdraw import deepdraw
+from .linearmei import LinearMEI
+from .result import MEI_image, MEI_distibution, MEI_neural_network
+from .objective.deepdraw import deepdraw
 
 
 class MEI(LinearMEI):
