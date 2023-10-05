@@ -1,4 +1,4 @@
-from objective.optimizer import get_optimizer
+
 from abc import ABC, abstractmethod
 from torch import nn
 import torch
@@ -6,6 +6,7 @@ import numpy as np
 
 from .tools.distributions import GaussianMixtureModel
 from .tools.denoisers import Denoiser
+from .objective.optimizer import get_optimizer
 
 
 class MEI_result(nn.Module, ABC):
