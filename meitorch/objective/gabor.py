@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import ndimage, signal
 from tqdm import tqdm
-from meitorch.tools.transforms import adjust_img_stats
+from ..tools.transforms import adjust_img_stats
 
 
 def create_gabor(

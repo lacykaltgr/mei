@@ -3,9 +3,9 @@ import scipy.ndimage
 import scipy
 import torch
 from tqdm import tqdm
-from meitorch.tools.transforms import roll, batch_std
-from meitorch.tools.precond import fft_smooth
-from meitorch.analyze import Analyze
+from ..tools.transforms import roll, batch_std
+from ..tools.precond import fft_smooth
+from ..analyze import Analyze
 
 
 eps = 1e-12

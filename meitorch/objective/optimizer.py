@@ -1,6 +1,6 @@
 from torch import optim
 import torch
-from meitorch.tools.schedules import ConstantSchedule, Scheduler
+from ..tools.schedules import ConstantSchedule, Scheduler
 
 
 def get_optimizer(

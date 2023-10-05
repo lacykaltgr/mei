@@ -1,11 +1,11 @@
-from meitorch.objective.optimizer import get_optimizer
+from objective.optimizer import get_optimizer
 from abc import ABC, abstractmethod
 from torch import nn
 import torch
 import numpy as np
 
-from meitorch.tools.distributions import GaussianMixtureModel
-from meitorch.tools.denoisers import Denoiser
+from tools.distributions import GaussianMixtureModel
+from tools.denoisers import Denoiser
 
 
 class MEI_result(nn.Module, ABC):

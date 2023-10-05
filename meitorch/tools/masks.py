@@ -1,8 +1,8 @@
 from scipy.ndimage.filters import gaussian_filter
-from meitorch.tools.transforms import remove_small_area
+from transforms import remove_small_area
 import numpy as np
 import torch
-from meitorch.tools.transforms import fit_gauss_envelope
+from transforms import fit_gauss_envelope
 from skimage.morphology import convex_hull_image, binary_erosion
 from scipy.ndimage import binary_erosion, generate_binary_structure
 

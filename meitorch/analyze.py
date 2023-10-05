@@ -3,8 +3,8 @@ import numpy as np
 from tqdm import tqdm
 from itertools import product
 
-from meitorch.tools.transforms import roll
-from meitorch.tools.masks import mask_image
+from tools.transforms import roll
+from tools.masks import mask_image
 
 
 class Analyze:
