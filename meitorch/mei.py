@@ -1,7 +1,7 @@
 import torch
 
 from .linearmei import LinearMEI
-from .result import MEI_image, MEI_distibution, MEI_neural_network
+from .result import MEI_image, MEI_distribution, MEI_neural_network
 from .objective.deepdraw import deepdraw
 
 
@@ -28,7 +28,7 @@ class MEI(LinearMEI):
     def generate_variational(self, **MEIParams):
         distribution = MEIParams["distribution"]
         del MEIParams["distribution"]
-        process = MEI_distibution(distribution, self.img_shape, **MEIParams)
+        process = MEI_distribution(distribution, self.img_shape, **MEIParams)
         return self._generate(process)
 
     def generate_nn_based(self, **MEIParams):

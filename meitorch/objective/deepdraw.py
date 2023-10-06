@@ -100,13 +100,8 @@ def make_step(process, operation, step_i, add_loss=0):
     if process.clip:
         inputs.data = torch.clamp(inputs.data, -process.bias / process.scale, (1 - process.bias) / process.scale)
 
-    from matplotlib.pyplot import imshow, show
-    imshow(inputs.data[0][0].detach().cpu().numpy())
-    show()
     if process.blur:
         process.blur(inputs.data)
-    imshow(inputs.data[0][0].detach().cpu().numpy())
-    show()
 
 
 def get_result_stats(process, operation):

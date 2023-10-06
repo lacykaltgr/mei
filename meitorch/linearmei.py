@@ -134,7 +134,8 @@ class LinearMEI:
                          dy=[best_params[i + 4] for i in range(self.img_shape[0])],
                          dx=[best_params[i + 5] for i in range(self.img_shape[0])])
 
-    def white_noise_analysis(self, shape, n_samples=100, sigma=0.6):
+    @staticmethod
+    def white_noise_analysis(operation, shape, n_samples=1000, sigma=0.6):
         if shape[0] == 1:
             shape = shape[1:]
 
@@ -146,11 +147,14 @@ class LinearMEI:
                 white_noise[i, :].reshape(shape), sigma=sigma).reshape(np.prod(shape))
 
         values = []
-        # loop over a batch of 128 white_noise images
-        for i in range(0, n_samples, 128):
-            batch = white_noise[i:i + 128, :]
-            values.append(self.operation(batch))
-        values = np.stack(values, axis=0)
+        # loop over a batc h of 128 white_noise images
+        with torch.no_grad():
+            for i in range(0, n_samples, 128):
+                batch = white_noise[i:i + 128, ...]
+                batch = batch.reshape(-1, *shape)
+                batch = torch.tensor(batch, dtype=torch.float32)
+                values.append(operation(batch))
+            values = np.concatenate(values, axis=0)
         # multiply transpose of target block_values with white noise tensorially
         receptive_fields = np.matmul(values.transpose(), white_noise) / np.sqrt(n_samples)
         return receptive_fields

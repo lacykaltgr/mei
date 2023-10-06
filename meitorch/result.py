@@ -200,23 +200,23 @@ class MEI_image(MEI_result):
         self.image = state["image"]
 
 
-class MEI_distibution(MEI_result):
+class MEI_distribution(MEI_result):
     def __init__(self, distribution, img_shape, **MEIParams):
         assert "n_samples_per_batch" in MEIParams, "n_samples_per_batch must be specified"
         n_samples = MEIParams["n_samples_per_batch"]
-        super(MEI_distibution, self).__init__(img_shape, n_samples, **MEIParams)
+        super(MEI_distribution, self).__init__(img_shape, n_samples, **MEIParams)
 
         self.distribution_type = distribution
         assert "fixed_stddev" in MEIParams, "fixed_stddev must be specified for uniform distribution"
         if distribution == "normal":
-            mean, std = self.generate_loc_scale(MEIParams["fixed_stddev"])
-            self.distribution = torch.distributions.Normal(mean, std)
+            self.mean, self.std = self.generate_loc_scale(MEIParams["fixed_stddev"])
+            self.distribution = torch.distributions.Normal(self.mean, self.std)
         elif distribution == "laplace":
-            mean, std = self.generate_loc_scale(MEIParams["fixed_stddev"])
-            self.distribution = torch.distributions.Laplace(mean, std)
+            self.mean, std = self.self.generate_loc_scale(MEIParams["fixed_stddev"])
+            self.distribution = torch.distributions.Laplace(self.mean, self.std)
         elif distribution == "uniform":
-            mean, std = self.generate_loc_scale(MEIParams["fixed_stddev"])
-            self.distribution = torch.distributions.Uniform(mean, std)
+            self.mean, self.std = self.generate_loc_scale(MEIParams["fixed_stddev"])
+            self.distribution = torch.distributions.Uniform(self.mean, self.std)
         elif distribution == "mixture_of_gaussians":
             assert "n_components" in MEIParams, "n_components must be specified for mixture of gaussians"
             n_components = MEIParams["n_components"]
@@ -234,13 +234,13 @@ class MEI_distibution(MEI_result):
 
     def generate_loc_scale(self, fixed_stddev=False):
         mean = self.generate_random_noise(self.img_shape)
-        mean = torch.nn.Parameter(torch.tensor(mean), requires_grad=True)
+        mean = torch.nn.Parameter(torch.tensor(mean, dtype=torch.float32), requires_grad=True)
 
         if fixed_stddev:
-            std = torch.ones(self.img_shape) * fixed_stddev
+            std = torch.ones(self.img_shape, dtype=torch.float32) * fixed_stddev
         else:
             std = self.generate_random_noise(self.img_shape)
-            std = torch.nn.Parameter(torch.tensor(std), requires_grad=True)
+            std = torch.nn.Parameter(torch.tensor(std, dtype=torch.float32), requires_grad=True)
         return mean, std
 
     def __getstate__(self):
@@ -268,7 +268,7 @@ class MEI_neural_network(MEI_result):
 
     def get_samples(self):
         sample_batch = torch.nn.Parameter(
-            torch.tensor(self.generate_random_noise(self.batch_shape)),
+            torch.tensor(self.generate_random_noise(self.batch_shape), dtype=torch.float32),
             requires_grad=True)
         return self.net(sample_batch)
 
