@@ -167,7 +167,10 @@ class MEI_result(nn.Module, ABC):
         if item in self.param_dict.keys():
             return self.param_dict[item]
         else:
-            return super().__getattr__(item)
+            try:
+                return super().__getattr__(item)
+            except AttributeError:
+                return None
 
 
 class MEI_image(MEI_result):
@@ -207,24 +210,28 @@ class MEI_distribution(MEI_result):
         n_samples = MEIParams["n_samples_per_batch"]
         super(MEI_distribution, self).__init__(img_shape, n_samples, device, **MEIParams)
 
+        self.mean_std_parameters = nn.ParameterList()
+
         self.distribution_type = distribution
         assert "fixed_stddev" in MEIParams, "fixed_stddev must be specified for uniform distribution"
         if distribution == "normal":
             self.mean, self.std = self.generate_loc_scale(MEIParams["fixed_stddev"])
             self.distribution = torch.distributions.Normal(self.mean, self.std)
+            self.mean_std_parameters.append(self.mean)
         elif distribution == "laplace":
-            self.mean, std = self.self.generate_loc_scale(MEIParams["fixed_stddev"])
+            self.mean, std = self.generate_loc_scale(MEIParams["fixed_stddev"])
             self.distribution = torch.distributions.Laplace(self.mean, self.std)
+            self.mean_std_parameters.append(self.mean)
         elif distribution == "uniform":
             self.mean, self.std = self.generate_loc_scale(MEIParams["fixed_stddev"])
             self.distribution = torch.distributions.Uniform(self.mean, self.std)
+            self.mean_std_parameters.append(self.mean)
         elif distribution == "mixture_of_gaussians":
             assert "n_components" in MEIParams, "n_components must be specified for mixture of gaussians"
             n_components = MEIParams["n_components"]
             self.distribution = GaussianMixtureModel(n_components, img_shape, MEIParams["fixed_stddev"])
         else:
             raise ValueError("Distribution not supported")
-
         self.init_optimizer()
 
     def get_image(self):
