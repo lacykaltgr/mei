@@ -64,7 +64,7 @@ class MEIoptimizer(optim.Optimizer):
                 a = step_size / (torch.abs(grad).mean() + self.eps)
                 b = param_group["lr"] * grad.data  # itt (step gain -255) volt az egyik szorzó
                 step = a * b
-                param.data += step
+                param.data -= step
         self.step_i += 1
         return step
 
@@ -82,7 +82,7 @@ class MEIBatchoptimizer(MEIoptimizer):
                 a = step_size / (torch.mean(torch.abs(grad.data), dim=0, keepdim=True) + self.eps)
                 b = param_group["lr"] * grad.data
                 step = a * b
-                param.data += step
+                param.data -= step
         self.step_i += 1
         return step
 
