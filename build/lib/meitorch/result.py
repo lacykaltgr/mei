@@ -10,12 +10,13 @@ from .objective.optimizer import get_optimizer
 
 
 class MEI_result(nn.Module, ABC):
-    def __init__(self, shape, n_samples=1, **MEIParams):
+    def __init__(self, shape, n_samples=1, device='cpu',  **MEIParams):
         super(MEI_result, self).__init__()
         self.img_shape = shape
         self.n_samples = n_samples
         self.param_dict = MEIParams
         self.result_dict = dict()
+        self.device = device
 
         if "scaler" in self.param_dict.keys() and self.param_dict["scaler"] is not None:
             if isinstance(self.param_dict["scaler"], (int, float)):
@@ -108,7 +109,6 @@ class MEI_result(nn.Module, ABC):
         from .analyze import Analyze
         return Analyze.compute_spatial_frequency(self.image)
 
-
     @abstractmethod
     def get_image(self):
         pass
@@ -171,24 +171,25 @@ class MEI_result(nn.Module, ABC):
 
 
 class MEI_image(MEI_result):
-    def __init__(self, shape, n_samples=1, image=None, **MEIParams):
-        super(MEI_image, self).__init__(shape, n_samples, **MEIParams)
+    def __init__(self, shape, n_samples=1, image=None, device='cpu', **MEIParams):
+        super(MEI_image, self).__init__(shape, n_samples, device=device, **MEIParams)
         self.batch_shape = (n_samples, *shape)
 
         if image is None:
             self.image = torch.nn.Parameter(
-                torch.tensor(self.generate_random_noise(self.batch_shape), dtype=torch.float32),
+                torch.tensor(self.generate_random_noise(self.batch_shape),
+                             dtype=torch.float32, device=self.device),
                 requires_grad=True)
         else:
-            self.image = image
+            self.image = image.to(self.device)
 
         self.init_optimizer()
 
     def get_image(self):
-        return self.image
+        return self.image.to(self.device)
 
     def get_samples(self):
-        return self.image
+        return self.image.to(self.device)
 
     def __getstate__(self):
         state = super().__getstate__()
@@ -201,10 +202,10 @@ class MEI_image(MEI_result):
 
 
 class MEI_distribution(MEI_result):
-    def __init__(self, distribution, img_shape, **MEIParams):
+    def __init__(self, distribution, img_shape, device='cpu', **MEIParams):
         assert "n_samples_per_batch" in MEIParams, "n_samples_per_batch must be specified"
         n_samples = MEIParams["n_samples_per_batch"]
-        super(MEI_distribution, self).__init__(img_shape, n_samples, **MEIParams)
+        super(MEI_distribution, self).__init__(img_shape, n_samples, device, **MEIParams)
 
         self.distribution_type = distribution
         assert "fixed_stddev" in MEIParams, "fixed_stddev must be specified for uniform distribution"
@@ -227,10 +228,10 @@ class MEI_distribution(MEI_result):
         self.init_optimizer()
 
     def get_image(self):
-        return self.distribution.mean
+        return self.distribution.mean.to(self.device)
 
     def get_samples(self):
-        return self.distribution.rsample(self.n_samples)
+        return self.distribution.rsample(self.n_samples).to(self.device)
 
     def generate_loc_scale(self, fixed_stddev=False):
         mean = self.generate_random_noise(self.img_shape)
@@ -241,7 +242,7 @@ class MEI_distribution(MEI_result):
         else:
             std = self.generate_random_noise(self.img_shape)
             std = torch.nn.Parameter(torch.tensor(std, dtype=torch.float32), requires_grad=True)
-        return mean, std
+        return mean.to(self.device), std.to(self.device)
 
     def __getstate__(self):
         state = super().__getstate__()
@@ -254,22 +255,22 @@ class MEI_distribution(MEI_result):
 
 
 class MEI_neural_network(MEI_result):
-    def __init__(self, net, img_shape, shape, **MEIParams):
+    def __init__(self, net, img_shape, device='cpu', **MEIParams):
         n_samples = MEIParams["n_samples"]
-        super(MEI_neural_network, self).__init__(img_shape, n_samples, **MEIParams)
+        super(MEI_neural_network, self).__init__(img_shape, n_samples, device, **MEIParams)
 
-        self.net = net
+        self.net = net.to(self.device)
         self.batch_shape = (n_samples, *img_shape)
 
         self.init_optimizer()
 
     def get_image(self):
-        return self.net(self.generate_random_noise(self.batch_shape))
+        return self.get_samples()
 
     def get_samples(self):
-        sample_batch = torch.nn.Parameter(
-            torch.tensor(self.generate_random_noise(self.batch_shape), dtype=torch.float32),
-            requires_grad=True)
+        sample_batch = torch.tensor(
+            self.generate_random_noise(self.batch_shape),
+            dtype=torch.float32, device=self.device)
         return self.net(sample_batch)
 
     def __getstate__(self):

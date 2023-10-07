@@ -10,7 +10,7 @@ class MEI(LinearMEI):
     Class for generating more complex optimized inputs
     """
     def __init__(self, operation, shape=(1, 28, 28),  device='cpu'):
-        super().__init__(operation, shape, device)
+        super().__init__(operation, shape, device=device)
 
     def generate_image_based(self, **MEIParams):
         """
@@ -22,19 +22,19 @@ class MEI(LinearMEI):
         """
         n_samples = MEIParams["n_samples"]
         del MEIParams["n_samples"]
-        process = MEI_image(self.img_shape, n_samples, self.device, **MEIParams)
+        process = MEI_image(self.img_shape, n_samples, device=self.device, **MEIParams)
         return self._generate(process)
 
     def generate_variational(self, **MEIParams):
         distribution = MEIParams["distribution"]
         del MEIParams["distribution"]
-        process = MEI_distribution(distribution, self.img_shape, self.device, **MEIParams)
+        process = MEI_distribution(distribution, self.img_shape, device=self.device, **MEIParams)
         return self._generate(process)
 
     def generate_nn_based(self, **MEIParams):
         net = MEIParams["net"]
         del MEIParams["net"]
-        process = MEI_neural_network(net, self.img_shape, self.device, **MEIParams)
+        process = MEI_neural_network(net, self.img_shape, device=self.device, **MEIParams)
         return self._generate(process)
 
     def _generate(self, process):

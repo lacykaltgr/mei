@@ -186,10 +186,10 @@ class MEI_image(MEI_result):
         self.init_optimizer()
 
     def get_image(self):
-        return self.image
+        return self.image.to(self.device)
 
     def get_samples(self):
-        return self.image
+        return self.image.to(self.device)
 
     def __getstate__(self):
         state = super().__getstate__()
@@ -228,10 +228,10 @@ class MEI_distribution(MEI_result):
         self.init_optimizer()
 
     def get_image(self):
-        return self.distribution.mean
+        return self.distribution.mean.to(self.device)
 
     def get_samples(self):
-        return self.distribution.rsample(self.n_samples)
+        return self.distribution.rsample(self.n_samples).to(self.device)
 
     def generate_loc_scale(self, fixed_stddev=False):
         mean = self.generate_random_noise(self.img_shape)
