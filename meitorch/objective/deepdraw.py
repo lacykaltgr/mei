@@ -31,9 +31,9 @@ def deepdraw(process, operation):
 
         make_step(process, operation, step_i=i, add_loss=div_term)
 
-        if i % process.save_every == 0:
-            image = process.get_image().data.clone().cpu().numpy()
-            process.image_history.append(image)
+        #if i % process.save_every == 0:
+        #    image = process.get_image().data.clone().cpu().numpy()
+        #    process.image_history.append(image)
 
     result_stats = get_result_stats(process, operation)
     return result_stats
@@ -76,11 +76,11 @@ def make_step(process, operation, step_i, add_loss=0):
     outputs = operation(inputs)
     loss = outputs.mean()
     process.loss_history.append(loss.item())
-    (loss + add_loss).backward()
+    loss += add_loss
+    loss.backward()
 
     if process.precond:
         for param in process.parameters():
-            print(param.grad.shape)
             smooth_grad = fft_smooth(param.grad, process.precond(step_i))
             print(smooth_grad.shape)
             param.grad.data.copy_(smooth_grad)

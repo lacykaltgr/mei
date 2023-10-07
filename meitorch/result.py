@@ -107,7 +107,7 @@ class MEI_result(nn.Module, ABC):
         :return: frequency of each column, row in arrays, magnitude spectrum
         """
         from .analyze import Analyze
-        return Analyze.compute_spatial_frequency(self.image)
+        return Analyze.compute_spatial_frequency(self.get_image()[0])
 
     @abstractmethod
     def get_image(self):
@@ -167,10 +167,7 @@ class MEI_result(nn.Module, ABC):
         if item in self.param_dict.keys():
             return self.param_dict[item]
         else:
-            try:
-                return super().__getattr__(item)
-            except AttributeError:
-                return None
+            return super().__getattr__(item)
 
 
 class MEI_image(MEI_result):
@@ -189,10 +186,10 @@ class MEI_image(MEI_result):
         self.init_optimizer()
 
     def get_image(self):
-        return self.image.to(self.device)
+        return self.image
 
     def get_samples(self):
-        return self.image.to(self.device)
+        return self.image
 
     def __getstate__(self):
         state = super().__getstate__()
@@ -210,46 +207,47 @@ class MEI_distribution(MEI_result):
         n_samples = MEIParams["n_samples_per_batch"]
         super(MEI_distribution, self).__init__(img_shape, n_samples, device, **MEIParams)
 
-        self.mean_std_parameters = nn.ParameterList()
-
         self.distribution_type = distribution
         assert "fixed_stddev" in MEIParams, "fixed_stddev must be specified for uniform distribution"
         if distribution == "normal":
             self.mean, self.std = self.generate_loc_scale(MEIParams["fixed_stddev"])
+            self.register_parameter("mu", self.mean)
             self.distribution = torch.distributions.Normal(self.mean, self.std)
-            self.mean_std_parameters.append(self.mean)
+            if not MEIParams["fixed_stddev"]:
+                self.register_parameter("std", self.std)
         elif distribution == "laplace":
             self.mean, std = self.generate_loc_scale(MEIParams["fixed_stddev"])
             self.distribution = torch.distributions.Laplace(self.mean, self.std)
-            self.mean_std_parameters.append(self.mean)
         elif distribution == "uniform":
             self.mean, self.std = self.generate_loc_scale(MEIParams["fixed_stddev"])
             self.distribution = torch.distributions.Uniform(self.mean, self.std)
-            self.mean_std_parameters.append(self.mean)
         elif distribution == "mixture_of_gaussians":
             assert "n_components" in MEIParams, "n_components must be specified for mixture of gaussians"
             n_components = MEIParams["n_components"]
             self.distribution = GaussianMixtureModel(n_components, img_shape, MEIParams["fixed_stddev"])
         else:
             raise ValueError("Distribution not supported")
+
         self.init_optimizer()
 
     def get_image(self):
-        return self.distribution.mean.to(self.device)
+        return self.distribution.mean
 
     def get_samples(self):
-        return self.distribution.rsample(self.n_samples).to(self.device)
+        return self.distribution.rsample(self.n_samples)
 
-    def generate_loc_scale(self, fixed_stddev=False):
+    def generate_loc_scale(self, fixed_stddev=False) -> (nn.Parameter, nn.Parameter):
         mean = self.generate_random_noise(self.img_shape)
-        mean = torch.nn.Parameter(torch.tensor(mean, dtype=torch.float32), requires_grad=True)
+        mean = torch.nn.Parameter(torch.tensor(mean,
+                                               dtype=torch.float32,
+                                               device=self.device),  requires_grad=True)
 
         if fixed_stddev:
-            std = torch.ones(self.img_shape, dtype=torch.float32) * fixed_stddev
+            std = torch.ones(self.img_shape, dtype=torch.float32, device=self.device) * fixed_stddev
         else:
             std = self.generate_random_noise(self.img_shape)
-            std = torch.nn.Parameter(torch.tensor(std, dtype=torch.float32), requires_grad=True)
-        return mean.to(self.device), std.to(self.device)
+            std = torch.nn.Parameter(torch.tensor(std, dtype=torch.float32, device=self.device), requires_grad=True)
+        return mean, std
 
     def __getstate__(self):
         state = super().__getstate__()
