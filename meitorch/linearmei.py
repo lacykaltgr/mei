@@ -135,28 +135,30 @@ class LinearMEI:
                          dx=[best_params[i + 5] for i in range(self.img_shape[0])])
 
     @staticmethod
-    def white_noise_analysis(operation, shape, n_samples=1000, sigma=0.6):
+    def white_noise_analysis(operation, shape, n_samples=1000, sigma=0.6, device="cpu"):
         if shape[0] == 1:
             shape = shape[1:]
 
-        white_noise = np.random.normal(size=(n_samples, np.prod(shape)), loc=0.0, scale=1.).astype(np.float32)
+        white_noise = np.random.normal(size=(n_samples, np.prod(shape)), loc=0.0, scale=1.)
 
         # apply ndimage.gaussian_filter with sigma=0.6
         for i in range(n_samples):
             white_noise[i, :] = ndimage.gaussian_filter(
                 white_noise[i, :].reshape(shape), sigma=sigma).reshape(np.prod(shape))
 
+
+        white_noise = torch.tensor(white_noise, dtype=torch.float32, device=device)
         values = []
         # loop over a batc h of 128 white_noise images
         with torch.no_grad():
             for i in range(0, n_samples, 128):
                 batch = white_noise[i:i + 128, ...]
                 batch = batch.reshape(-1, *shape)
-                batch = torch.tensor(batch, dtype=torch.float32)
+                batch = torch.tensor(batch, dtype=torch.float32, device=device)
                 values.append(operation(batch))
-            values = np.concatenate(values, axis=0)
+            values = torch.concatenate(values, dim=0)
         # multiply transpose of target block_values with white noise tensorially
-        receptive_fields = np.matmul(values.transpose(), white_noise) / np.sqrt(n_samples)
+        receptive_fields = torch.matmul(values.T, white_noise) / np.sqrt(n_samples)
         return receptive_fields
 
     def set_gabor_ranges(self, **ranges):
