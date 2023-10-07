@@ -146,7 +146,6 @@ class LinearMEI:
             white_noise[i, :] = ndimage.gaussian_filter(
                 white_noise[i, :].reshape(shape), sigma=sigma).reshape(np.prod(shape))
 
-
         white_noise = torch.tensor(white_noise, dtype=torch.float32, device=device)
         values = []
         # loop over a batc h of 128 white_noise images
