@@ -21,6 +21,7 @@ class GenerativeMLPNet(nn.Module):
         self.activation = activation
         self.activate_output = activate_output
         self.output_shape = output_shape
+        self.fixed_stddev = fixed_stddev
         self.input = nn.Parameter(torch.randn(hidden_sizes[0]),
                                   requires_grad=trainable_input)
 
