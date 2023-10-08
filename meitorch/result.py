@@ -271,7 +271,7 @@ class MEI_neural_network(MEI_result):
         self.init_optimizer()
 
     def get_image(self):
-        return self.net(self.n_samples)
+        return self.net(self.n_samples, use_mean=True)
 
     def get_samples(self):
         return self.net(self.n_samples)
