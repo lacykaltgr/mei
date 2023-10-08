@@ -74,7 +74,7 @@ def make_step(process, operation, step_i, add_loss=0):
                                              eps)) * (process.train_norm / process.scale))
 
     outputs = operation(inputs)
-    loss = outputs.mean()
+    loss = outputs["loss"].mean()
     process.loss_history.append(loss.item())
     loss += add_loss
     loss.backward()
@@ -107,10 +107,12 @@ def make_step(process, operation, step_i, add_loss=0):
 def get_result_stats(process, operation):
     with torch.no_grad():
         img = process.get_image()
-        activation = operation(img).data.cpu().numpy()
+        losses = operation(img)
+        activation = losses["activation"].data.cpu().numpy()
     #cont, vals, lim_contrast = Analyze.contrast_tuning(operation, img.detach().cpu().numpy())
     result_dict = dict(
         activation=activation,
+        kl=losses["kl"].data.cpu().numpy()
         #monotonic=bool(np.all(np.diff(vals) >= 0)),
         #max_activation=np.max(vals),
         #max_contrast=cont[np.argmax(vals)],
@@ -118,6 +120,7 @@ def get_result_stats(process, operation):
         #img_mean=img.mean(),
         #lim_contrast=lim_contrast,
     )
+
     return result_dict
 
 def diversion_term(process, div_metric='correlation', div_linkage='minimum', div_weight=0, div_mask=1):
