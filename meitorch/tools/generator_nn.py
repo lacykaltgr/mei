@@ -74,7 +74,7 @@ class GenerativeConvNet(nn.Module):
         self.shape = shape
         self.hidden_sizes = hidden_sizes
         self.activation = activation
-        self.input = nn.Parameter(torch.randn((2, *shape)),
+        self.input = nn.Parameter(torch.randn(shape),
                                   requires_grad=trainable_input)
 
         layers = []
@@ -85,7 +85,8 @@ class GenerativeConvNet(nn.Module):
                 nn.Conv2d(
                     in_channels=sizes[i], out_channels=sizes[i + 1],
                     kernel_size=kernel_size, padding='same'))
-            layers.append(self.activation)
+            if i < len(sizes) - 2:
+                layers.append(self.activation)
         self.conv = nn.Sequential(*layers)
 
         if distribution_base == 'normal':
@@ -96,11 +97,7 @@ class GenerativeConvNet(nn.Module):
             raise ValueError(f'Unknown distribution base: {distribution_base}')
 
     def forward(self, batch_size):
-        x_mu, x_logvar = self.input.chunk(2, dim=0)
-        x_mu = x_mu.squeeze(0)
-        x_logvar = x_logvar.squeeze(0)
-        distribution = self.dist(x_mu, torch.exp(x_logvar))
-        batch = distribution.rsample(sample_shape=torch.Size([batch_size]))
+        batch = torch.tile(self.input, (batch_size, 1, 1, 1))
         output = self.conv(batch)
         y_mu, y_sigma = output.reshape(batch_size, 2, -1).chunk(2, dim=1)
         output_distribution = self.dist(y_mu, torch.exp(y_sigma))
