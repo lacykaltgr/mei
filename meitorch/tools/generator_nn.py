@@ -72,14 +72,14 @@ class GenerativeConvNet(nn.Module):
     """
 
     def __init__(self, hidden_sizes, shape, kernel_size, activation=nn.SiLU(), activate_output=False,
-                 trainable_input=False, distribution_base='normal', fixed_stddev=0.4):
+                 distribution_base='normal', fixed_stddev=0.4):
         super(GenerativeConvNet, self).__init__()
         self.shape = shape
         self.hidden_sizes = hidden_sizes
         self.activation = activation
         self.activate_output = activate_output
         self.input = nn.Parameter(torch.randn(shape),
-                                  requires_grad=trainable_input)
+                                  requires_grad=True)
         self.fixed_stddev = fixed_stddev
 
         layers = []
