@@ -262,6 +262,7 @@ class MEI_distribution(MEI_result):
 class MEI_neural_network(MEI_result):
     def __init__(self, net, img_shape, device='cpu', **MEIParams):
         n_samples = MEIParams["n_samples"]
+        del MEIParams["n_samples"]
         super(MEI_neural_network, self).__init__(img_shape, n_samples, device, **MEIParams)
 
         self.net = net.to(self.device)
@@ -270,13 +271,10 @@ class MEI_neural_network(MEI_result):
         self.init_optimizer()
 
     def get_image(self):
-        return self.get_samples()
+        return self.net(self.n_samples)
 
     def get_samples(self):
-        sample_batch = torch.tensor(
-            self.generate_random_noise(self.batch_shape),
-            dtype=torch.float32, device=self.device)
-        return self.net(sample_batch)
+        return self.net(self.n_samples)
 
     def __getstate__(self):
         state = super().__getstate__()

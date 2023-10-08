@@ -100,7 +100,7 @@ class GenerativeConvNet(nn.Module):
         x_mu = x_mu.squeeze(0)
         x_logvar = x_logvar.squeeze(0)
         distribution = self.dist(x_mu, torch.exp(x_logvar))
-        batch = distribution.rsample([batch_size])
+        batch = distribution.rsample(sample_shape=torch.Size([batch_size]))
         output = self.conv(batch)
         y_mu, y_sigma = output.reshape(batch_size, 2, -1).chunk(2, dim=1)
         output_distribution = self.dist(y_mu, torch.exp(y_sigma))

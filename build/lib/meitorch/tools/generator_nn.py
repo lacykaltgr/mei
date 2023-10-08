@@ -71,21 +71,22 @@ class GenerativeConvNet(nn.Module):
     def __init__(self, hidden_sizes, shape, kernel_size, activation=nn.SiLU(),
                  trainable_input=False, distribution_base='normal'):
         super(GenerativeConvNet, self).__init__()
+        self.shape = shape
         self.hidden_sizes = hidden_sizes
-
-        self.input = nn.Parameter(torch.randn(2, shape),
+        self.activation = activation
+        self.input = nn.Parameter(torch.randn((2, *shape)),
                                   requires_grad=trainable_input)
 
         layers = []
-        sizes = hidden_sizes + 2 * shape[0]
+        output_channels = 2 * shape[0]
+        sizes = hidden_sizes + [output_channels]
         for i in range(len(sizes) - 1):
             layers.append(
                 nn.Conv2d(
                     in_channels=sizes[i], out_channels=sizes[i + 1],
                     kernel_size=kernel_size, padding='same'))
-            if i < len(sizes) - 2 or self.activate_output:
-                layers.append(self.activation)
-        self.conv_layers = nn.Sequential(*layers)
+            layers.append(self.activation)
+        self.conv = nn.Sequential(*layers)
 
         if distribution_base == 'normal':
             self.dist = torch.distributions.Normal
@@ -96,8 +97,10 @@ class GenerativeConvNet(nn.Module):
 
     def forward(self, batch_size):
         x_mu, x_logvar = self.input.chunk(2, dim=0)
+        x_mu = x_mu.squeeze(0)
+        x_logvar = x_logvar.squeeze(0)
         distribution = self.dist(x_mu, torch.exp(x_logvar))
-        batch = distribution.rsample(batch_size)
+        batch = distribution.rsample(sample_shape=torch.Size([batch_size]))
         output = self.conv(batch)
         y_mu, y_sigma = output.reshape(batch_size, 2, -1).chunk(2, dim=1)
         output_distribution = self.dist(y_mu, torch.exp(y_sigma))

@@ -80,12 +80,10 @@ def make_step(process, operation, step_i, add_loss=0):
     loss.backward()
 
     if process.precond:
-        print(inputs.grad)
         for param in process.parameters():
-            print(param, param.grad)
-            #smooth_grad = fft_smooth(param.grad, process.precond(step_i))
-            #print(smooth_grad.shape)
-            #param.grad.data.copy_(smooth_grad)
+            smooth_grad = fft_smooth(param.grad, process.precond(step_i))
+            print(smooth_grad.shape)
+            param.grad.data.copy_(smooth_grad)
 
     process.optimizer.step()
     #process.schedule.step()
