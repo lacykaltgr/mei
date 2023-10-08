@@ -101,7 +101,7 @@ class GenerativeConvNet(nn.Module):
         output = self.conv(batch)
         y_mu, y_sigma = output.reshape(batch_size, 2, -1).chunk(2, dim=1)
         output_distribution = self.dist(y_mu, torch.exp(y_sigma))
-        samples = output_distribution.sample()
+        samples = output_distribution.rsample()
         return samples.reshape(batch_size, *self.shape)
 
 
