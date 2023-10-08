@@ -26,7 +26,7 @@ class GenerativeMLPNet(nn.Module):
                                   requires_grad=trainable_input)
 
         layers = []
-        output_shape = 2*np.prod(output_shape) if fixed_stddev else 2*hidden_sizes[0]
+        output_shape = np.prod(output_shape) if fixed_stddev else 2*np.prod(output_shape)
         sizes = hidden_sizes + [output_shape]
         for i in range(len(sizes) - 1):
             layers.append(nn.Linear(sizes[i], sizes[i + 1]))
