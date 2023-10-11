@@ -216,8 +216,11 @@ class MEI_distribution(MEI_result):
             if not MEIParams["fixed_stddev"]:
                 self.register_parameter("std", self.std)
         elif distribution == "laplace":
-            self.mean, std = self.generate_loc_scale(MEIParams["fixed_stddev"])
+            self.mean, self.std = self.generate_loc_scale(MEIParams["fixed_stddev"])
+            self.register_parameter("mu", self.mean)
             self.distribution = torch.distributions.Laplace(self.mean, self.std)
+            if not MEIParams["fixed_stddev"]:
+                self.register_parameter("std", self.std)
         elif distribution == "uniform":
             self.mean, self.std = self.generate_loc_scale(MEIParams["fixed_stddev"])
             self.distribution = torch.distributions.Uniform(self.mean, self.std)
