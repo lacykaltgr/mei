@@ -78,22 +78,6 @@ def roll(tensor, shift, axis):
     return torch.cat([after, before], axis)
 
 
-def batch_mean(batch, keepdim=False):
-    """ Compute mean for a batch of images. """
-    mean = batch.view(len(batch), -1).mean(-1)
-    if keepdim:
-        mean = mean.view(len(batch), 1, 1, 1)
-    return mean
-
-
-def batch_std(batch, keepdim=False, unbiased=True):
-    """ Compute std for a batch of images. """
-    std = batch.view(len(batch), -1).std(-1, unbiased=unbiased)
-    if keepdim:
-        std = std.view(len(batch), 1, 1, 1)
-    return std
-
-
 def remove_small_area(mask, size_threshold=50):
     """
     Removes contiguous areas in a thresholded image that is smaller in the number of pixels than size_threshold.

@@ -54,7 +54,7 @@ class LinearMEI:
         return MEI_image(
             n_images=1,
             img_shape=self.img_shape,
-            image=gabor_loader[best_idx]['image'],
+            init=gabor_loader[best_idx]['image'],
             bias=self.bias,
             scale=self.scale,
             device=self.device,
@@ -121,7 +121,7 @@ class LinearMEI:
                                  for i in range(self.img_shape[0])])
         best_activation = -neg_model_activation(best_params)
 
-        return MEI_image(image=best_gabor,
+        return MEI_image(init=best_gabor,
                          img_shape=self.img_shape,
                          bias=self.bias,
                          scale=self.scale,

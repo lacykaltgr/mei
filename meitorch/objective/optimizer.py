@@ -11,6 +11,7 @@ def get_optimizer(
     """
     Get an optimizer based on the optimizer type and the learning rate
 
+    :param params:
     :param optimizer_type: The optimizer type
     :param lr: The learning rate
     :param kwargs: Additional arguments for the optimizer
@@ -60,6 +61,8 @@ class MEIoptimizer(optim.Optimizer):
         step = None
         for param_group in self.param_groups:
             for param in param_group["params"]:
+                if not param.requires_grad or param.grad is None:
+                    continue
                 grad = param.grad.data
                 a = step_size / (torch.abs(grad).mean() + self.eps)
                 b = param_group["lr"] * grad.data  # itt (step gain -255) volt az egyik szorzó
@@ -78,6 +81,8 @@ class MEIBatchoptimizer(MEIoptimizer):
         step = None
         for param_group in self.param_groups:
             for param in param_group["params"]:
+                if not param.requires_grad or param.grad is None:
+                    continue
                 grad = param.grad.data
                 a = step_size / (torch.mean(torch.abs(grad.data), dim=0, keepdim=True) + self.eps)
                 b = param_group["lr"] * grad.data

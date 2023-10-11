@@ -1,8 +1,8 @@
 import kornia
 import torch
 
-def tv_norm(image):
 
+def tv_norm(image):
     """
     # Calculate the TV norm
     # TV(x) = ||∇x||_1, where ∇x is the gradient of the image
@@ -16,6 +16,7 @@ def tv_norm(image):
 
     loss = kornia.losses.TotalVariation()
     return loss(image)
+
 
 def l2_norm(image):
     return torch.norm(image, p=2)

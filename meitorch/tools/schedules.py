@@ -1,9 +1,7 @@
-import warnings
 
-import torch
-from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 from abc import ABC, abstractmethod
 
+from torch import optim
 
 
 def LinearSchedule(start, end):
@@ -52,121 +50,61 @@ class _ConstantSchedule(Scheduler):
         return self.value
 
 
-def ConstantLearningRateSchedule(warmup_steps, last_epoch=-1):
-    return lambda optimizer: _ConstantLearningRate(optimizer, warmup_steps, last_epoch)
+def get_lr_scheduler(optimizer, hparams):
 
-def NarrowExponentialDecaySchedule(decay_steps, decay_rate, decay_start, minimum_learning_rate, last_epoch=-1):
-    return lambda optimizer: _NarrowExponentialDecay(optimizer, decay_steps, decay_rate, decay_start,
-                                                     minimum_learning_rate, last_epoch)
-
-def NarrowCosineDecaySchedule(decay_steps, warmup_steps, decay_start=0, minimum_learning_rate=None, last_epoch=-1):
-    return lambda optimizer: _NarrowCosineDecay(optimizer, decay_steps, warmup_steps, decay_start,
-                                                minimum_learning_rate, last_epoch)
-
-def NoamScheduleSchedule(warmup_steps=4000, last_epoch=-1):
-    return lambda optimizer: _NoamSchedule(optimizer, warmup_steps, last_epoch)
-
-
-class _ConstantLearningRate(LRScheduler):
     """
-    Constant learning rate scheduler
-    from Efficient-VDVAE paper
+    StepLR:     This scheduler decreases the learning rate at specified epochs by a multiplicative factor.
+                For example, you could use this scheduler to decrease the learning rate by 0.5 every 10 epochs.
+
+                - step_size (int): The number of epochs between each learning rate decrease.
+                - gamma (float): The multiplicative factor by which the learning rate is decreased at each step.
+
+    MultiStepLR: This scheduler is similar to StepLR, but it allows you to specify multiple epochs
+                    at which to decrease the learning rate. For example,
+                    you could use this scheduler to decrease the learning rate by 0.5 at epochs 10, 20, and 30.
+
+                - milestones (list[int]): A list of epochs at which to decrease the learning rate.
+                - gamma (float): The multiplicative factor by which the learning rate is decreased at each step.
+
+    ExponentialLR: This scheduler decreases the learning rate exponentially by a multiplicative factor at each epoch.
+
+                - gamma (float): The multiplicative factor by which the learning rate is decreased at each epoch.
+
+    CosineAnnealingLR: This scheduler decreases the learning rate following a cosine curve,
+                        starting from a high value and gradually decreasing to a low value.
+
+                - T_max (int): The maximum number of epochs.
+                - eta_min (float): The minimum learning rate.
+
+    CosineAnnealingWarmRestartsLR: This scheduler is similar to CosineAnnealingLR,
+                                    but it restarts the cosine annealing process at specified epochs.
+                                    This can be useful for preventing the model from getting stuck in local minima.
+
+                - T_max (int): The maximum number of epochs per restart.
+                - eta_min (float): The minimum learning rate.
+                - T_mult (float): A factor by which the T_max is multiplied after each restart.
+
+    :param optimizer: the optimizer to be used
+    :param hparams: the hyperparameters of the schdeler
+    :return: the scheduler
     """
-    def __init__(self, optimizer, warmup_steps, last_epoch=-1, verbose=False):
-        if warmup_steps != 0:
-            self.warmup_steps = torch.tensor(warmup_steps)
-        else:
-            self.warmup_steps = torch.tensor(1)
-        super(_ConstantLearningRate, self).__init__(optimizer=optimizer, last_epoch=last_epoch, verbose=verbose)
-        # self.last_epoch = last_epoch
 
-    def get_lr(self):
-        if not self._get_lr_called_within_step:
-            warnings.warn("To get the last learning rate computed by the scheduler, "
-                          "please use `get_last_lr()`.", UserWarning)
+    s_type = hparams["type"]
+    del hparams["type"]
 
-        return [v * (torch.minimum(torch.tensor(1.), self.last_epoch / self.warmup_steps))
-                for v in self.base_lrs]
-
-    def _get_closed_form_lr(self):
-        return [v * (torch.minimum(torch.tensor(1.), torch.tensor(self.last_epoch / self.warmup_steps)))
-                for v in self.base_lrs]
+    if s_type == "step":
+        return optim.lr_scheduler.StepLR(optimizer, **hparams)
+    elif s_type == "multi_step":
+        return optim.lr_scheduler.MultiStepLR(optimizer, **hparams)
+    elif s_type == "exponential":
+        return optim.lr_scheduler.ExponentialLR(optimizer, **hparams)
+    elif s_type == "cosine":
+        return optim.lr_scheduler.CosineAnnealingLR(optimizer, **hparams)
+    elif s_type == "cosine_warm":
+        return optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, **hparams)
 
 
 
-class _NarrowExponentialDecay(LRScheduler):
-    """
-    Narrow exponential learning rate decay scheduler
-    from Efficient-VDVAE paper
-    """
-    def __init__(self, optimizer, decay_steps, decay_rate, decay_start,
-                 minimum_learning_rate, last_epoch=-1, verbose=False):
-        self.decay_steps = decay_steps
-        self.decay_rate = decay_rate
-        self.decay_start = decay_start
-        self.minimum_learning_rate = minimum_learning_rate
-
-        super(_NarrowExponentialDecay, self).__init__(optimizer=optimizer, last_epoch=last_epoch, verbose=verbose)
-
-    def get_lr(self):
-        lrs = [torch.clamp(base_lr * self.decay_rate ^ (self.last_epoch - self.decay_start / self.decay_steps),
-                           min=self.minimum_learning_rate, max=base_lr) for base_lr in self.base_lrs]
-        return lrs
-
-    def _get_closed_form_lr(self):
-        lrs = [torch.clamp(base_lr * self.decay_rate ^ (self.last_epoch - self.decay_start / self.decay_steps),
-                           min=self.minimum_learning_rate, max=base_lr) for base_lr in self.base_lrs]
-        return lrs
 
 
-class _NarrowCosineDecay(CosineAnnealingLR):
-    """
-    Narrow cosine learning rate decay scheduler
-    from Efficient-VDVAE paper
-    """
-    def __init__(self, optimizer, decay_steps, warmup_steps, decay_start=0, minimum_learning_rate=None, last_epoch=-1,
-                 verbose=False):
-        self.decay_steps = decay_steps
-        self.decay_start = decay_start
-        self.minimum_learning_rate = minimum_learning_rate
-        self.warmup_steps = warmup_steps
 
-        assert self.warmup_steps <= self.decay_start
-
-        super(_NarrowCosineDecay, self).__init__(optimizer=optimizer, last_epoch=last_epoch, T_max=decay_steps,
-                                                 eta_min=self.minimum_learning_rate)
-
-    def get_lr(self):
-        if self.last_epoch < self.decay_start:
-
-            return [v * (torch.minimum(torch.tensor(1.), self.last_epoch / self.warmup_steps)) for v in self.base_lrs]
-        else:
-            return super(_NarrowCosineDecay, self).get_lr()
-
-    def _get_closed_form_lr(self):
-        if self.last_epoch < self.decay_start:
-            return [v * (torch.minimum(torch.tensor(1.), self.last_epoch / self.warmup_steps)) for v in self.base_lrs]
-        else:
-            return super(_NarrowCosineDecay, self)._get_closed_form_lr()
-
-
-class _NoamSchedule(LRScheduler):
-    """
-    Noam learning rate scheduler
-    from Efficient-VDVAE paper
-    """
-    def __init__(self, optimizer, warmup_steps=4000, last_epoch=-1, verbose=False):
-        self.warmup_steps = warmup_steps
-        super(_NoamSchedule, self).__init__(optimizer=optimizer, last_epoch=last_epoch, verbose=verbose)
-
-    def get_lr(self):
-        arg1 = torch.rsqrt(self.last_epoch)
-        arg2 = self.last_epoch * (self.warmup_steps ** -1.5)
-
-        return [base_lr * self.warmup_steps ** 0.5 * torch.minimum(arg1, arg2) for base_lr in self.base_lrs]
-
-    def _get_closed_form_lr(self):
-        arg1 = torch.rsqrt(self.last_epoch)
-        arg2 = self.last_epoch * (self.warmup_steps ** -1.5)
-
-        return [base_lr * self.warmup_steps ** 0.5 * torch.minimum(arg1, arg2) for base_lr in self.base_lrs]

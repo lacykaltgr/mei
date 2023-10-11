@@ -216,7 +216,7 @@ class Analyze:
         def run(x):
             with torch.no_grad():
                 img = torch.Tensor(x).to(device)
-                result = model(img)
+                result = model(img)["objective"]
             return result
 
         target = max_lim_gain if use_max_lim else max_gain

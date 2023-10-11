@@ -3,8 +3,10 @@ import scipy.ndimage
 import scipy
 import torch
 from tqdm import tqdm
-from ..tools.transforms import roll, batch_std
+from ..tools.transforms import roll
+from ..tools.utils import batch_std
 from ..tools.precond import fft_smooth
+from ..analyze import Analyze
 
 eps = 1e-12
 
@@ -24,18 +26,18 @@ def deepdraw(process, operation):
     for i in tqdm(range(process.iter_n)):
         # Diversity for multiple images (Image based)
         if process.diverse:
-            div_term = diversion_term(process, process.div_metric,
-                                      process.div_linkage, process.div_weight, process.div_mask)
+            div_term = diversion_term(process, **process.diverse_params)
         else:
             div_term = 0
 
         make_step(process, operation, step_i=i, add_loss=div_term)
 
-        #if i % process.save_every == 0:
-        #    image = process.get_image().data.clone().cpu().numpy()
-        #    process.image_history.append(image)
+        if i % process.save_every == 0:
+            image = process.get_image().data.clone().cpu().numpy()
+            process.image_history.append(image)
 
     result_stats = get_result_stats(process, operation)
+
     return result_stats
 
 
@@ -74,19 +76,25 @@ def make_step(process, operation, step_i, add_loss=0):
                                              eps)) * (process.train_norm / process.scale))
 
     outputs = operation(inputs)
-    loss = outputs["loss"].mean()
-    process.loss_history.append(loss.item())
+    loss = outputs["objective"].mean()
+    process.update_loss_history(outputs)
+
+    if loss < process.best_loss:
+        process.best_loss = loss
+        process.best_image = process.get_image()
+
     loss += add_loss
     loss.backward()
 
     if process.precond:
         for param in process.parameters():
-            smooth_grad = fft_smooth(param.grad, process.precond(step_i))
-            print(smooth_grad.shape)
-            param.grad.data.copy_(smooth_grad)
+            if param.requires_grad and param.grad is not None:
+                smooth_grad = fft_smooth(param.grad, process.precond(step_i))
+                param.grad.data.copy_(smooth_grad)
 
     process.optimizer.step()
-    #process.schedule.step()
+    if process.scheduler is not None:
+        process.schedule.step()
 
     if process.norm and process.norm > 0.0:
         data_idx = batch_std(inputs.data) + eps > process.norm / process.scale
@@ -98,7 +106,7 @@ def make_step(process, operation, step_i, add_loss=0):
         inputs.data = roll(roll(inputs.data, -ox, -1), -oy, -2)
 
     if process.clip:
-        inputs.data = torch.clamp(inputs.data, -process.bias / process.scale, (1 - process.bias) / process.scale)
+        inputs.data = torch.clamp(inputs.data, process.bias-process.scale, process.bias+process.scale)
 
     if process.blur:
         process.blur(inputs.data)
@@ -109,19 +117,20 @@ def get_result_stats(process, operation):
         img = process.get_image()
         losses = operation(img)
         activation = losses["activation"].data.cpu().numpy()
-    #cont, vals, lim_contrast = Analyze.contrast_tuning(operation, img.detach().cpu().numpy())
+
+    cont, vals, lim_contrast = Analyze.contrast_tuning(operation, img.detach().cpu().numpy())
     result_dict = dict(
         activation=activation,
-        kl=losses["kl"].data.cpu().numpy()
-        #monotonic=bool(np.all(np.diff(vals) >= 0)),
-        #max_activation=np.max(vals),
-        #max_contrast=cont[np.argmax(vals)],
-        #sat_contrast=np.max(cont),
-        #img_mean=img.mean(),
-        #lim_contrast=lim_contrast,
+        monotonic=bool(np.all(np.diff(vals) >= 0)),
+        max_activation=np.max(vals),
+        max_contrast=cont[np.argmax(vals)],
+        sat_contrast=np.max(cont),
+        img_mean=img.mean(),
+        lim_contrast=lim_contrast,
     )
 
     return result_dict
+
 
 def diversion_term(process, div_metric='correlation', div_linkage='minimum', div_weight=0, div_mask=1):
     """
