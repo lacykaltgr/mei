@@ -40,32 +40,32 @@ class MEIoptimizer(optim.Optimizer):
     def __init__(self, params, defaults):
         assert "lr" in defaults, "lr must be specified"
         self.lr = defaults["lr"]
-
         super(MEIoptimizer, self).__init__(params, defaults)
 
         assert "iter_n" in defaults, "iter_n must be specified"
         self.iter_n = defaults["iter_n"]
 
-        step_size = defaults["start_step_size"] if "start_step_size" in defaults else 0.125
-        if isinstance(step_size, (int, float)):
-            self.step_size = ConstantSchedule(step_size)(self.iter_n)
-        elif callable(step_size):
-            self.step_size = step_size(self.iter_n)
+        step_gain = defaults["step_gain"] if "step_gain" in defaults else 1
+        if isinstance(step_gain, (int, float)):
+            self.step_gain = ConstantSchedule(step_gain)(self.iter_n)
+        elif callable(step_gain):
+            self.step_gain = step_gain(self.iter_n)
 
         self.eps = defaults["eps"] if "eps" in defaults else 1e-8
         self.step_i = 0
 
 
     def step(self):
-        step_size = self.step_size(self.step_i)
+        step_gain = self.step_gain(self.step_i)
         step = None
         for param_group in self.param_groups:
             for param in param_group["params"]:
                 if not param.requires_grad or param.grad is None:
                     continue
                 grad = param.grad.data
-                a = step_size / (torch.abs(grad).mean() + self.eps)
-                b = param_group["lr"] * grad.data  # itt (step gain -255) volt az egyik szorzó
+                standard_deviation = 1 # hardcoded nem jó
+                a = param_group["lr"] / (torch.abs(grad).mean() + self.eps)
+                b = (step_gain / (2 * standard_deviation)) * grad.data
                 step = a * b
                 param.data -= step
         self.step_i += 1
@@ -77,15 +77,16 @@ class MEIBatchoptimizer(MEIoptimizer):
         super(MEIBatchoptimizer, self).__init__(params, defaults)
 
     def step(self):
-        step_size = self.step_size(self.step_i)
+        step_gain = self.step_size(self.step_i)
         step = None
         for param_group in self.param_groups:
             for param in param_group["params"]:
                 if not param.requires_grad or param.grad is None:
                     continue
                 grad = param.grad.data
-                a = step_size / (torch.mean(torch.abs(grad.data), dim=0, keepdim=True) + self.eps)
-                b = param_group["lr"] * grad.data
+                standard_deviation = 1 # hardcoded nem jó
+                a = param_group["lr"] / (torch.mean(torch.abs(grad.data), dim=0, keepdim=True) + self.eps)
+                b = (step_gain / (2 * standard_deviation)) * grad.data
                 step = a * b
                 param.data -= step
         self.step_i += 1

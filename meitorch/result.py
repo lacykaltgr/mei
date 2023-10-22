@@ -58,7 +58,7 @@ class MEI_result(nn.Module, ABC):
             elif isinstance(self.param_dict["blur"], str):
                 assert "blur_params" in self.param_dict.keys(), "blur_params must be specified"
                 self.blur = Denoiser.get_denoiser(self.param_dict["blur"],
-                                                  self.iter_n,  self.param_dict["blur_params"])
+                                                  self.iter_n,  **self.param_dict["blur_params"])
         else:
             self.blur = None
 
@@ -132,15 +132,49 @@ class MEI_result(nn.Module, ABC):
                 value = value.detach().cpu().numpy().mean()
             self.loss_history[key].append(value)
 
-    def plot_losses(self, save_path=None):
+    def plot_losses(self, show=False, save_path=None, ranges=None):
         # plot multiple losses in one plot in different colors
-        import matplotlib.pyplot as plt
+        import matplotlib.pyplot as plt 
+        fig, ax = plt.subplots()
         for key, value in self.loss_history.items():
-            plt.plot(value, label=key)
-            plt.legend()
-        plt.show()
+            if ranges is not None:
+                assert len(ranges) == 2
+                clipped_value = np.clip(value, *ranges)
+            else:
+                clipped_value = value
+            ax.plot(clipped, label=key)
+        ax.legend()
+        ax.set_ylabel("iteration")
+        if show:
+            plt.show()
         if save_path is not None:
             plt.savefig(save_path)
+        return fig
+    
+    
+    def plot_image_and_losses(self, save_path=None, ranges=None):
+        # plot multiple losses in one plot in different colors
+        import matplotlib.pyplot as plt 
+        fig, (ax_im, ax_loss) = plt.subplots(1, 2, figsize=(6, 3), gridspec_kw={"width_ratios": [1, 1], "height_ratios": [1]})
+        image = self.get_image()[0].detach().cpu().numpy()
+        ax_im.imshow(image.reshape(40, 40))
+        ax_im.set_title(f"Activation: {self.get_activation():.2f}")
+        ax_im.axis("off")
+
+        for key, value in self.loss_history.items():
+            if ranges is not None:
+                assert len(ranges) == 2
+                clipped_value = np.clip(value, *ranges)
+            else:
+                clipped_value = value
+            ax_loss.plot(clipped_value, label=key)
+        ax_loss.legend()
+        
+        fig.tight_layout()
+
+        if save_path is not None:
+            plt.savefig(save_path)
+        return fig
 
     @abstractmethod
     def get_image(self):

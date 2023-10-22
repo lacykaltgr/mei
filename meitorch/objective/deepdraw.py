@@ -2,6 +2,8 @@ import numpy as np
 import scipy.ndimage
 import scipy
 import torch
+import torch.nn.functional as F
+import torchvision.transforms as T
 from tqdm import tqdm
 from ..tools.transforms import roll
 from ..tools.utils import batch_std
@@ -57,9 +59,8 @@ def make_step(process, operation, step_i, add_loss=0):
 
     if process.scaler:
         scale = process.scaler(step_i)
-        img_scale = inputs.detach().numpy()
-        scipy.ndimage.zoom(img_scale, (1, 1, scale, scale))
-        inputs.data = torch.from_numpy(img_scale)
+        inputs = F.interpolate(inputs, scale_factor=scale, mode='bilinear', align_corners=True)
+        inputs = T.CenterCrop(process.img_shape[-2:])(inputs)
 
     # apply jitter shift
     if process.jitter:
@@ -86,16 +87,23 @@ def make_step(process, operation, step_i, add_loss=0):
 
     loss += add_loss
     loss.backward()
-
+    
+    #for param in process.parameters():
+    #    if param.requires_grad and param.grad is not None:
+    #        if param.grad.isnan().any():
+    #            print("nan in grad", loss.isnan().any(), param.isnan().any())
+    
     if process.precond:
         for param in process.parameters():
             if param.requires_grad and param.grad is not None and len(param.grad.size()) >= 2:
                 smooth_grad = fft_smooth(param.grad, process.precond(step_i))
+                if len(smooth_grad.size()) != len(param.grad.data.size()):
+                    smooth_grad = smooth_grad.squeeze(0)
                 param.grad.data.copy_(smooth_grad)
 
     process.optimizer.step()
     if process.scheduler is not None:
-        process.schedule.step()
+        process.scheduler.step()
 
     if process.norm and process.norm > 0.0:
         data_idx = batch_std(inputs.data) + eps > process.norm / process.scale
@@ -110,7 +118,7 @@ def make_step(process, operation, step_i, add_loss=0):
         inputs.data = torch.clamp(inputs.data, process.bias-process.scale, process.bias+process.scale)
 
     if process.blur:
-        process.blur(inputs.data)
+        inputs.data = process.blur(inputs.data, step_i)
 
 
 def get_result_stats(process, operation):

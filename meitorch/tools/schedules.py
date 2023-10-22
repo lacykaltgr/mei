@@ -1,7 +1,6 @@
-
 from abc import ABC, abstractmethod
-
 from torch import optim
+import numpy as np
 
 
 def LinearSchedule(start, end):
@@ -13,10 +12,16 @@ def OctaveSchedule(values: list):
 def ConstantSchedule(value):
     return lambda iter_n: _ConstantSchedule(value)
 
+def RandomSchedule(minimum, maximum):
+    return lambda iter_n: _RandomSchedule(minimum, maximum)
+
 
 class Scheduler(ABC):
     @abstractmethod
     def __call__(self, step):
+        pass
+    
+    def __str__(self):
         pass
 
 
@@ -28,6 +33,21 @@ class _LinearSchedule(Scheduler):
 
     def __call__(self, step):
         return self.start + (self.end - self.start) * step / self.steps
+    
+    def __str__(self):
+        return f"linear {self.start}->{self.end}"
+    
+    
+class _RandomSchedule(Scheduler):
+    def __init__(self, minimum, maximum):
+        self.maximum = maximum
+        self.minimum = minimum
+        
+    def __call__(self, step):
+        return np.random.uniform(self.minimum, self.maximum)
+    
+    def __str__(self):
+        return f"random {self.minimum}->{self.maximum}"
 
 
 class _OctaveSchedule(Scheduler):
@@ -40,6 +60,9 @@ class _OctaveSchedule(Scheduler):
         steps_per_octave = self.steps // octaves + 1
         step = step // steps_per_octave
         return self.values[step]
+    
+    def __str__(self):
+        return f"octave {self.values}"
 
 
 class _ConstantSchedule(Scheduler):
@@ -48,6 +71,9 @@ class _ConstantSchedule(Scheduler):
 
     def __call__(self, step):
         return self.value
+    
+    def __str__(self):
+        return f"constant {self.value}"
 
 
 def get_lr_scheduler(optimizer, hparams):
