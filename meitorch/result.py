@@ -142,7 +142,7 @@ class MEI_result(nn.Module, ABC):
                 clipped_value = np.clip(value, *ranges)
             else:
                 clipped_value = value
-            ax.plot(clipped, label=key)
+            ax.plot(clipped_value, label=key)
         ax.legend()
         ax.set_ylabel("iteration")
         if show:
@@ -302,12 +302,11 @@ class MEI_distribution(MEI_result):
         mean = torch.nn.Parameter(torch.tensor(mean,
                                                dtype=torch.float32,
                                                device=self.device),  requires_grad=True)
-
-        if fixed_stddev:
-            std = torch.ones(self.img_shape, dtype=torch.float32, device=self.device) * fixed_stddev
-        else:
-            std = self.generate_random_noise(self.img_shape)
-            std = torch.nn.Parameter(torch.tensor(std, dtype=torch.float32, device=self.device), requires_grad=True)
+        
+        stddev = fixed_stddev if fixed_stddev else 0.4
+        std = torch.ones(self.img_shape, dtype=torch.float32, device=self.device) * stddev
+        if not fixed_stddev:
+            std = torch.nn.Parameter(std, requires_grad=True)
         return mean, std
 
     def __getstate__(self):

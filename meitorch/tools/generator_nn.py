@@ -77,12 +77,13 @@ class GenerativeConvNet(nn.Module):
     """
 
     def __init__(self, hidden_sizes, shape, kernel_size, activation=nn.SiLU(), activate_output=False,
-                 distribution_base='normal', fixed_stddev=0.4, use_mean=False):
+                 distribution_base='normal', fixed_stddev=0.4, use_mean=False, scale=1):
         super(GenerativeConvNet, self).__init__()
         self.shape = shape
         self.hidden_sizes = hidden_sizes
         self.activation = activation
         self.activate_output = activate_output
+        self.scale = scale
         self.input = nn.Parameter(torch.tensor(self.generate_random_noise(self.shape),
                                               dtype=torch.float32),
                                   requires_grad=True)
@@ -101,6 +102,11 @@ class GenerativeConvNet(nn.Module):
             layers.append(conv2d)
             if i < len(sizes) - 2 or activate_output:
                 layers.append(self.activation)
+        if len(sizes) == 1:
+            conv2d = nn.Conv2d(
+                    in_channels=sizes[0], out_channels=sizes[0],
+                    kernel_size=kernel_size, padding='same')
+            layers.append(conv2d)
         self.conv = nn.Sequential(*layers)
 
         if distribution_base == 'normal':
@@ -126,7 +132,7 @@ class GenerativeConvNet(nn.Module):
     def generate_random_noise(self, shape):
         # generate initial random image
         background_color = np.float32([0])
-        gen_img = np.random.normal(background_color, 1 / 32, shape)
+        gen_img = np.random.normal(background_color, self.scale/4, shape)
         gen_img = np.clip(gen_img, -1, 1)
         return gen_img
     
