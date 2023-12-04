@@ -1,15 +1,15 @@
 # Most Exciting Input
 Generate ***Most Exciting Input*** to explore and understand Tensorflow/PyTorch model's behavior by identifying input samples that induce high activation from specific neurons in your model.
 
-### Paper
+## Paper
 paper: [Input optimization for interpreting neural generative models](https://lacykaltgr.github.io/assets/pdf/TDK2023.pdf)
 
-### Installation
+## Installation
 ```bash
 pip install meitorch
 ```
 
-### Usage
+## Usage
 
 1. Load the model you want to generate interpretable visualizations for.
 
@@ -104,7 +104,7 @@ You can further analyze the results with the **meitorch.analyze** module.
 from meitorch.analyze import Analyze
 ```
 
-### Configurations
+## Configurations
 
 For all configurations, you can use a schedule instead of a constant value for any parameter.
 A schedule is a function that takes the current iteration as input and returns the value for that iteration.
