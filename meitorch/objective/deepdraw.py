@@ -1,27 +1,21 @@
 import numpy as np
-import scipy.ndimage
-import scipy
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as T
 from tqdm import tqdm
-from ..tools.transforms import roll
+from ..tools.base_transforms import roll
 from ..tools.utils import batch_std
 from ..tools.precond import fft_smooth
-from ..analyze import Analyze
 
 eps = 1e-12
+
 
 def deepdraw(process, operation):
     """
     Generate an image by iteratively optimizing activity of net.
 
-    :param process: Process object with operation and other parameters.
-    :param image: Initial image (h x w x c)
-    :param random_crop: If image to optimize is bigger than networks input image,
-    optimize random crops of the image each iteration.
-    :param original_size: (channel, height, width) expected by the network. If
-                        None, it uses base_img's.
+    :param process: MEI_result process object
+    :param operation: The operation to optimize for
     :return: The optimized image
     """
 
@@ -47,10 +41,9 @@ def make_step(process, operation, step_i, add_loss=0):
     """
     Update meitorch in place making a gradient ascent step in the output of net.
 
-    :param src: Image(s) to updata
-    :param step_size: Step size to use for the update: (im_old += step_size * grad)
-    :param sigma: Standard deviation for gaussian smoothing (if used, see blur).
-    :param eps: Small value to avoid division by zero.
+    :param process: MEI_result process object
+    :param operation: The operation to optimize for
+    :param step_i: The step index
     :param add_loss: An additional term to add to the network activation before
                         calling backward on it. Usually, some regularization.
     """
@@ -87,11 +80,6 @@ def make_step(process, operation, step_i, add_loss=0):
 
     loss += add_loss
     loss.backward()
-    
-    #for param in process.parameters():
-    #    if param.requires_grad and param.grad is not None:
-    #        if param.grad.isnan().any():
-    #            print("nan in grad", loss.isnan().any(), param.isnan().any())
     
     if process.precond:
         for param in process.parameters():

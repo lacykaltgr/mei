@@ -1,6 +1,6 @@
 from torch import optim
 import torch
-from ..tools.schedules import ConstantSchedule, Scheduler
+from ..tools.schedules import ConstantSchedule
 
 
 def get_optimizer(
@@ -13,9 +13,9 @@ def get_optimizer(
 
     :param params:
     :param optimizer_type: The optimizer type
-    :param lr: The learning rate
+    :param iter_n: The number of iterations
     :param kwargs: Additional arguments for the optimizer
-    :return: The optimizer
+    :return: The optimizer nn.Optimizer instance
     """
     if optimizer_type == "adam":
         return optim.Adam(params, **kwargs)
@@ -54,7 +54,6 @@ class MEIoptimizer(optim.Optimizer):
         self.eps = defaults["eps"] if "eps" in defaults else 1e-8
         self.step_i = 0
 
-
     def step(self):
         step_gain = self.step_gain(self.step_i)
         step = None
@@ -63,7 +62,7 @@ class MEIoptimizer(optim.Optimizer):
                 if not param.requires_grad or param.grad is None:
                     continue
                 grad = param.grad.data
-                standard_deviation = 1 # hardcoded nem jó
+                standard_deviation = 1  # hardcoded nem jó
                 a = param_group["lr"] / (torch.abs(grad).mean() + self.eps)
                 b = (step_gain / (2 * standard_deviation)) * grad.data
                 step = a * b
@@ -84,7 +83,7 @@ class MEIBatchoptimizer(MEIoptimizer):
                 if not param.requires_grad or param.grad is None:
                     continue
                 grad = param.grad.data
-                standard_deviation = 1 # hardcoded nem jó
+                standard_deviation = 1  # hardcoded nem jó
                 a = param_group["lr"] / (torch.mean(torch.abs(grad.data), dim=0, keepdim=True) + self.eps)
                 b = (step_gain / (2 * standard_deviation)) * grad.data
                 step = a * b
@@ -105,4 +104,3 @@ class MEIBatchoptimizer(MEIoptimizer):
 # than the signal gradient)
 # In any way, gradient mean is only used as normalization here and using the mean is
 # alright (also image generation works normally).
-

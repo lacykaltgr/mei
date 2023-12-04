@@ -2,10 +2,10 @@ import numpy as np
 from numpy.linalg import svd
 from skimage.restoration import denoise_nl_means, estimate_sigma
 
-import torch
 import kornia
+from kornia import filters
+import torch
 from torch import nn
-from scipy.ndimage.filters import gaussian_filter
 from abc import ABC, abstractmethod
 from .schedules import ConstantSchedule
 
@@ -21,13 +21,13 @@ class Denoiser(nn.Module, ABC):
             return parameter(iter_n)
         else:
             return ConstantSchedule(parameter)(iter_n)
-        
+
     @staticmethod
-    def get_denoiser(blur_type, n_iters,  **params):
+    def get_denoiser(blur_type, n_iters, **params):
         if blur_type == 'bilateral':
-            denoiser = FilterBlur(blur_type=blur_type, n_iters=n_iters,  **params)
+            denoiser = FilterBlur(blur_type=blur_type, n_iters=n_iters, **params)
         elif blur_type == 'gaussian':
-            denoiser = FilterBlur(blur_type=blur_type, n_iters=n_iters,  **params)
+            denoiser = FilterBlur(blur_type=blur_type, n_iters=n_iters, **params)
         elif blur_type == 'tv':
             assert 'regularization_scaler' in params.keys(), "regularization_scaler must be specified for tv denoiser"
             assert 'num_iters' in params.keys(), "num_iters must be specified for tv denoiser"
@@ -82,9 +82,6 @@ class TVDenoise(Denoiser):
         return clean_image
 
 
-import torch
-from kornia import filters
-
 class FilterBlur(Denoiser):
     def __init__(self, n_iters, blur_type, **filter_params):
         super(FilterBlur, self).__init__()
@@ -95,13 +92,23 @@ class FilterBlur(Denoiser):
             assert 'kernel_size' in filter_params, "kernel_size must be specified for bilateral filter"
             assert 'sigma_color' in filter_params, "sigma_color must be specified for bilateral filter"
             assert 'sigma_spatial' in filter_params, "sigma_spatial must be specified for bilateral filter"
-            params = lambda step_i: ((torch.tensor(filter_params['kernel_size']), torch.tensor(filter_params['kernel_size'])), self.init_p(filter_params['sigma_color'], n_iters)(step_i), (torch.tensor(self.init_p(filter_params['sigma_spatial'], n_iters)(step_i)), torch.tensor(self.init_p(filter_params['sigma_spatial'], n_iters)(step_i))))
-            
+
+            def params(step_i):
+                return ((torch.tensor(filter_params['kernel_size']), torch.tensor(filter_params['kernel_size'])),
+                        self.init_p(filter_params['sigma_color'], n_iters)(step_i),
+                        (torch.tensor(self.init_p(filter_params['sigma_spatial'], n_iters)(step_i)),
+                         torch.tensor(self.init_p(filter_params['sigma_spatial'], n_iters)(step_i))))
+
             filter_t = filters.BilateralBlur
         elif blur_type == 'gaussian':
             assert 'sigma' in filter_params, "sigma must be specified for gaussian filter"
             assert 'kernel_size' in filter_params, "kernel size must be specified for gaussian filter"
-            params = lambda step_i: ((torch.tensor(filter_params['kernel_size']), torch.tensor(filter_params['kernel_size'])), (torch.tensor(self.init_p(filter_params['sigma'], n_iters)(step_i)), self.init_p(filter_params['sigma'], n_iters)(step_i)))
+
+            def params(step_i):
+                return ((torch.tensor(filter_params['kernel_size']), torch.tensor(filter_params['kernel_size'])),
+                        (torch.tensor(self.init_p(filter_params['sigma'], n_iters)(step_i)),
+                         self.init_p(filter_params['sigma'], n_iters)(step_i)))
+
             filter_t = filters.GaussianBlur2d
         else:
             raise ValueError("Invalid filter type (must be 'bilateral' or 'gaussian')")
@@ -112,9 +119,6 @@ class FilterBlur(Denoiser):
     def forward(self, x, step_i):
         params = self.params(step_i)
         return self.filter(*params)(x)
-
-
-
 
 
 class NonLocalMeansDenoise(Denoiser):
@@ -186,8 +190,7 @@ class WNNMDenoiser(Denoiser):
                     # Select the central patch
                     centerPatch = \
                         y_iter[j + searchWindowRadius:j + searchWindowRadius + 2 * patch_size,
-                        i + searchWindowRadius:i + searchWindowRadius + 2 * patch_size
-                        :]
+                        i + searchWindowRadius:i + searchWindowRadius + 2 * patch_size:]
 
                     # Initialize the vector of distances between patches
                     dists = np.ones(((2 * searchWindowRadius + 1) ** 2))
@@ -238,7 +241,8 @@ class WNNMDenoiser(Denoiser):
                     Xj_hat_center = U @ np.diag(np.maximum(S - w, 0)) @ V_T
                     Xj_hat = Xj_hat_center + Yj_means
 
-                    # Add the estimate of denoised central patch (first column of \hat{X}_j) to the esmated denoised image clipping it to between 0 and 1
+                    # Add the estimate of denoised central patch (first column of \hat{X}_j)
+                    # to the esmated denoised image clipping it to between 0 and 1
                     xhat_iter[j + searchWindowRadius:j + searchWindowRadius + 2 * patch_size,
                     i + searchWindowRadius:i + searchWindowRadius + 2 * patch_size,
                     :] = xhat_iter[j + searchWindowRadius:j + searchWindowRadius + 2 * patch_size,
@@ -273,8 +277,8 @@ class BM3DDenoise(Denoiser):
         clean_img = []
         for img in noisy_img:
             denoised_img = bm3d.bm3d(img,
-                                       sigma_psd=self.sigma_psd(step_i),
-                                       stage_arg=bm3d.BM3DStages.HARD_THRESHOLDING)
+                                     sigma_psd=self.sigma_psd(step_i),
+                                     stage_arg=bm3d.BM3DStages.HARD_THRESHOLDING)
             clean_img.append(denoised_img)
-        clean_img = np.stack(clean_img)    
+        clean_img = np.stack(clean_img)
         return clean_img

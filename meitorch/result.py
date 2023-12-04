@@ -4,8 +4,6 @@ from torch import nn
 import torch
 import numpy as np
 
-from .objective.deepdraw import get_result_stats
-from .tools.distributions import GaussianMixtureModel
 from .tools.denoisers import Denoiser
 from .objective.optimizer import get_optimizer
 from .tools.schedules import get_lr_scheduler
@@ -150,12 +148,12 @@ class MEI_result(nn.Module, ABC):
         if save_path is not None:
             plt.savefig(save_path)
         return fig
-    
-    
+
     def plot_image_and_losses(self, save_path=None, ranges=None):
         # plot multiple losses in one plot in different colors
         import matplotlib.pyplot as plt 
-        fig, (ax_im, ax_loss) = plt.subplots(1, 2, figsize=(6, 3), gridspec_kw={"width_ratios": [1, 1], "height_ratios": [1]})
+        fig, (ax_im, ax_loss) = plt.subplots(1, 2, figsize=(6, 3),
+                                             gridspec_kw={"width_ratios": [1, 1], "height_ratios": [1]})
         image = self.get_image()[0].detach().cpu().numpy()
         ax_im.imshow(image.reshape(40, 40))
         ax_im.set_title(f"Activation: {self.get_activation():.2f}")
@@ -267,11 +265,11 @@ class MEI_image(MEI_result):
         self.image = state["image"]
 
 
-class MEI_distribution(MEI_result):
+class MEI_variational(MEI_result):
     def __init__(self, distribution, img_shape, init=None, device='cpu', **MEIParams):
         assert "n_samples_per_batch" in MEIParams, "n_samples_per_batch must be specified"
         n_samples = MEIParams["n_samples_per_batch"]
-        super(MEI_distribution, self).__init__(img_shape, n_samples, device, **MEIParams)
+        super(MEI_variational, self).__init__(img_shape, n_samples, device, **MEIParams)
 
         if distribution == "normal":
             dist = torch.distributions.Normal
@@ -295,7 +293,7 @@ class MEI_distribution(MEI_result):
         return self.distribution.mean
 
     def get_samples(self):
-        return self.distribution.rsample(self.n_samples)
+        return self.distribution.rsample(torch.Size(self.n_samples))
 
     def generate_loc_scale(self, mean=None, fixed_stddev=False) -> (nn.Parameter, nn.Parameter):
         mean = self.generate_random_noise(self.img_shape) if mean is None else mean
@@ -319,39 +317,28 @@ class MEI_distribution(MEI_result):
         self.distribution = state["distribution"]
 
 
-class MEI_neural_network(MEI_result):
-    def __init__(self, net, img_shape, device='cpu', **MEIParams):
+class MEI_transformation(MEI_result):
+    def __init__(self, transform, img_shape, device='cpu', **MEIParams):
         n_samples = MEIParams["n_samples"]
         del MEIParams["n_samples"]
-        super(MEI_neural_network, self).__init__(img_shape, n_samples, device, **MEIParams)
+        super(MEI_transformation, self).__init__(img_shape, n_samples, device, **MEIParams)
 
-        self.net = net.to(self.device)
+        self.transform = transform.to(self.device)
         self.batch_shape = (n_samples, *img_shape)
 
         self.init_optimizer()
 
     def get_image(self):
-        return self.net(self.n_samples, use_mean=True)
+        return self.transform(self.n_samples, use_mean=True)
 
     def get_samples(self):
-        return self.net(self.n_samples)
+        return self.transform(self.n_samples)
 
     def __getstate__(self):
         state = super().__getstate__()
-        state.update({"net": self.net})
+        state.update({"transform": self.transform})
         return state
 
     def __setstate__(self, state):
         super().__setstate__(state)
-        self.net = state["net"]
-
-
-
-
-
-
-
-
-
-
-
+        self.transform = state["transform"]

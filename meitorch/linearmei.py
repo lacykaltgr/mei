@@ -28,9 +28,8 @@ class LinearMEI:
         """
         Find the most exciting gabor filter for cells in the neuron query
 
-        :param neuron_query: The queried neurons
         :param gabor_loader: The dataset containing the gabor filters to be evaluated
-        :return: Process(es) for best gabor filter for the queried neurons
+        :return: MEI_image for best gabor filter for the queried neurons
         """
         if self.img_shape[0] != 1:
             raise ValueError("Only grayscale images are supported for this feature, try using optimal gabor")
@@ -53,7 +52,7 @@ class LinearMEI:
          best_dx) = gabor_loader[best_idx]['params'].values()
         return MEI_image(
             n_images=1,
-            img_shape=self.img_shape,
+            shape=self.img_shape,
             init=gabor_loader[best_idx]['image'],
             bias=self.bias,
             scale=self.scale,
@@ -70,10 +69,9 @@ class LinearMEI:
         """
         Find parameters that produce an optimal gabor for this queried neurons
 
-        :param neuron_query: The neuron query
         :param target_mean: Target mean of optimal gabor
-        :param target_contrast: Targer contrast of optimal gabor
-        :return: Process(es) for optimal gabor filters for the queried neurons
+        :param target_contrast: Target contrast of optimal gabor
+        :return: MEI_image for optimal gabor filters for the queried neurons
         """
 
         bounds = self.limits * self.img_shape[0] if self.img_shape[0] > 1 else self.limits
@@ -122,7 +120,7 @@ class LinearMEI:
         best_activation = -neg_model_activation(best_params)
 
         return MEI_image(init=best_gabor,
-                         img_shape=self.img_shape,
+                         shape=self.img_shape,
                          bias=self.bias,
                          scale=self.scale,
                          device=self.device,
@@ -171,13 +169,13 @@ class LinearMEI:
     def set_gabor_limits(self, **limits):
         """
         Bounds for Gabor filter optimization
-        :param ranges: The bounds in key-value pairs
+        :param limits: The bounds in key-value pairs
         """
 
         def find_index(list_of_keys, element):
-            for index, key in enumerate(list_of_keys):
-                if key == element:
-                    return index
+            for i, k in enumerate(list_of_keys):
+                if k == element:
+                    return i
             return -1
 
         for key, value in limits.items():

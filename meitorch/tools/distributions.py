@@ -33,6 +33,7 @@ class GaussianMixtureModel(nn.Module):
 
         return log_sum_exp
 
-    def _log_gaussian(self, x, mean, var):
+    @staticmethod
+    def _log_gaussian(x, mean, var):
         # Calculate the log likelihood of a Gaussian distribution
         return -0.5 * torch.sum(((x - mean) / var)**2, dim=1) - 0.5 * torch.sum(torch.log(var))

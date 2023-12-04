@@ -52,6 +52,7 @@ def fit_gauss_envelope(img):
     mu = (mu_x, mu_y)
     return mu, cov, np.sqrt(g.reshape(img.shape))
 
+
 def roll(tensor, shift, axis):
     """
     Rolls the tensor along the given axis by the given shift
@@ -297,7 +298,7 @@ def adjust_contrast_with_mask(img, img_mask=None, contrast=-1, mu=-1, img_min=0,
                 current and desired contrast, and then clipped. This likely results in an image that is higher in contrast
                 than the original but not quite at the desired contrast and with some pixel information lost due to clipping.
     :param verbose: If True, prints out progress during iterative adjustment
-    :param steps: If force=True, this sets the number of iterative steps to be used in adjusting the image. The larger the
+    :param gain_steps: If force=True, this sets the number of iterative steps to be used in adjusting the image. The larger the
                 value, the closer the final image would approach the desired contrast.
 
     :return:

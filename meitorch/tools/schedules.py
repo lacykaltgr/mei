@@ -6,11 +6,14 @@ import numpy as np
 def LinearSchedule(start, end):
     return lambda iter_n: _LinearSchedule(start, end, iter_n)
 
+
 def OctaveSchedule(values: list):
     return lambda iter_n: _OctaveSchedule(values, iter_n)
 
+
 def ConstantSchedule(value):
     return lambda iter_n: _ConstantSchedule(value)
+
 
 def RandomSchedule(minimum, maximum):
     return lambda iter_n: _RandomSchedule(minimum, maximum)
@@ -128,9 +131,4 @@ def get_lr_scheduler(optimizer, hparams):
         return optim.lr_scheduler.CosineAnnealingLR(optimizer, **hparams)
     elif s_type == "cosine_warm":
         return optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, **hparams)
-
-
-
-
-
 

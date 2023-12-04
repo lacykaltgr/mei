@@ -1,8 +1,8 @@
 from scipy.ndimage.filters import gaussian_filter
-from .transforms import remove_small_area
+from .base_transforms import remove_small_area
 import numpy as np
 import torch
-from .transforms import fit_gauss_envelope
+from .base_transforms import fit_gauss_envelope
 from skimage.morphology import convex_hull_image, binary_erosion
 from scipy.ndimage import binary_erosion, generate_binary_structure
 
@@ -17,6 +17,7 @@ def gaussian_mask(img, factor):
     """
     *_, mask = fit_gauss_envelope(img)
     return mask ** factor
+
 
 def gaussian_mask_with_info(img, factor):
     """
@@ -91,9 +92,9 @@ def mei_tight_mask(img, operation, device, stdev_size_thr=1, filter_sigma=1, tar
     masked_img = fm * img + (1 - fm) * img.mean()
     activation = base_line = get_activation(masked_img)
 
-    #TODO: fix for multiple channels
+    # TODO: fix for multiple channels
     count = 0
-    while (activation > base_line * target_reduction_ratio):
+    while activation > base_line * target_reduction_ratio:
         selem_size = 3
         selem = generate_binary_structure(img.ndim, 1)
         selem[selem_size//2] = 1
