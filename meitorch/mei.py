@@ -36,14 +36,14 @@ class MEI(LinearMEI):
         process = MEI_variational(distribution, self.img_shape, init=init, device=self.device, **MEIParams)
         return self._generate(process)
 
-    def generate_transformation_based(self, **MEIParams):
+    def generate_transformation_mei(self, **MEIParams):
         """
         Generate most exciting inputs with transformation optimization
         :param MEIParams: Additional parameters for the optimization process.
         :return: MEI_transformation result
         """
         transform = MEIParams["transform"]
-        del MEIParams["net"]
+        del MEIParams["transform"]
         process = MEI_transformation(transform, self.img_shape, device=self.device, **MEIParams)
         return self._generate(process)
 
