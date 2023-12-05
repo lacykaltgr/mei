@@ -1,5 +1,5 @@
 # Most Exciting Input
-Generate ***Most Exciting Input*** to explore and understand Tensorflow/PyTorch model's behavior by identifying input samples that induce high activation from specific neurons in your model.
+Generate ***Most Exciting Input*** to explore and understand PyTorch model's behavior by identifying input samples that induce high activation from specific neurons in your model.
 
 ## Paper
 paper: [Input optimization for interpreting neural generative models](https://lacykaltgr.github.io/assets/pdf/TDK2023.pdf)
